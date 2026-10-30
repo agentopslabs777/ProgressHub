@@ -3,8 +3,6 @@ import csv
 import re
 from typing import List, Optional
 from datetime import datetime
-import pandas as pd
-import openpyxl
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session
@@ -794,6 +792,7 @@ def export_curriculum_template(
     if not program:
         raise HTTPException(status_code=404, detail="Program not found")
 
+    import openpyxl
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Curriculum_Import"
@@ -869,6 +868,8 @@ async def import_program_curriculum_excel(
 
     filename_lower = file.filename.lower() if file.filename else ""
     try:
+        import pandas as pd
+        import openpyxl
         if filename_lower.endswith(".csv"):
             df = pd.read_csv(io.BytesIO(content))
         else:
