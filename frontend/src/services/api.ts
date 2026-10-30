@@ -99,8 +99,16 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   }
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new ApiError(response.status, errorData.detail || 'Request failed', errorData);
+    let errorDetail = '';
+    try {
+      const errorData = await response.json();
+      errorDetail = errorData.detail || errorData.message || '';
+    } catch {
+      errorDetail = response.status === 404
+        ? 'Backend API not reachable (404). Check Vercel function or VITE_API_URL.'
+        : `Request failed (HTTP ${response.status}: ${response.statusText || 'Error'})`;
+    }
+    throw new ApiError(response.status, errorDetail || 'Request failed', {});
   }
 
   return response.json();
