@@ -83,7 +83,8 @@ app = FastAPI(
     title=settings.PROJECT_NAME,
     version="2.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    redirect_slashes=False
 )
 
 # CORS configuration
@@ -96,53 +97,44 @@ app.add_middleware(
 )
 
 # Health endpoint
+@app.get("/", tags=["Health"])
 @app.get("/healthz", tags=["Health"])
+@app.get("/api", tags=["Health"])
 @app.get("/api/healthz", tags=["Health"])
+@app.get("/v1/healthz", tags=["Health"])
 @app.get("/api/v1/healthz", tags=["Health"])
 def health_check():
     return {"status": "ok", "app": settings.PROJECT_NAME}
 
-# Register API routers under /api/v1
-app.include_router(auth_router, prefix="/api/v1")
-app.include_router(students_router, prefix="/api/v1")
-app.include_router(employees_router, prefix="/api/v1")
-app.include_router(teams_router, prefix="/api/v1")
-app.include_router(programs_router, prefix="/api/v1")
-app.include_router(checklists_router, prefix="/api/v1")
-app.include_router(enrollments_router, prefix="/api/v1")
-app.include_router(tasks_router, prefix="/api/v1")
-app.include_router(student_learning_router, prefix="/api/v1")
-app.include_router(dashboard_router, prefix="/api/v1")
-app.include_router(chat_router, prefix="/api/v1")
-app.include_router(files_router, prefix="/api/v1")
-app.include_router(notifications_router, prefix="/api/v1")
-app.include_router(audit_logs_router, prefix="/api/v1")
-app.include_router(submissions_router, prefix="/api/v1")
-app.include_router(referrals_router, prefix="/api/v1")
-app.include_router(reviews_router, prefix="/api/v1")
-app.include_router(rewards_router, prefix="/api/v1")
-app.include_router(payments_router, prefix="/api/v1")
+# Routers list
+_all_routers = [
+    auth_router,
+    students_router,
+    employees_router,
+    teams_router,
+    programs_router,
+    checklists_router,
+    enrollments_router,
+    tasks_router,
+    student_learning_router,
+    dashboard_router,
+    chat_router,
+    files_router,
+    notifications_router,
+    audit_logs_router,
+    submissions_router,
+    referrals_router,
+    reviews_router,
+    rewards_router,
+    payments_router,
+]
 
-# Also mount under /api for backwards compatibility with any /api/* client calls
-app.include_router(auth_router, prefix="/api")
-app.include_router(students_router, prefix="/api")
-app.include_router(employees_router, prefix="/api")
-app.include_router(teams_router, prefix="/api")
-app.include_router(programs_router, prefix="/api")
-app.include_router(checklists_router, prefix="/api")
-app.include_router(enrollments_router, prefix="/api")
-app.include_router(tasks_router, prefix="/api")
-app.include_router(student_learning_router, prefix="/api")
-app.include_router(dashboard_router, prefix="/api")
-app.include_router(chat_router, prefix="/api")
-app.include_router(files_router, prefix="/api")
-app.include_router(notifications_router, prefix="/api")
-app.include_router(audit_logs_router, prefix="/api")
-app.include_router(submissions_router, prefix="/api")
-app.include_router(referrals_router, prefix="/api")
-app.include_router(reviews_router, prefix="/api")
-app.include_router(rewards_router, prefix="/api")
-app.include_router(payments_router, prefix="/api")
+# Register API routers under all possible path variants to support direct server, proxy, and Vercel serverless rewrites
+for r in _all_routers:
+    app.include_router(r, prefix="/api/v1")
+    app.include_router(r, prefix="/api")
+    app.include_router(r, prefix="/v1")
+    app.include_router(r)
 
 if __name__ == "__main__":
     import uvicorn

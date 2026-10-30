@@ -31,10 +31,10 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "Training Management and Learning Progress Platform"
     API_V1_PREFIX: str = "/api/v1"
     
-    # Database - uses DATABASE_URL if set, falls back to Neon cloud db on Vercel
+    # Database - uses DATABASE_URL if set, falls back to Neon cloud db
     DATABASE_URL: str = os.getenv(
         "DATABASE_URL", 
-        DEFAULT_CLOUD_DB if is_serverless else f"sqlite:///{BASE_DIR / 'training_platform.db'}"
+        DEFAULT_CLOUD_DB
     )
     
     # JWT Auth

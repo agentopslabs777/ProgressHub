@@ -1,6 +1,7 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
-from backend.app.core.config import settings
+from sqlalchemy.pool import NullPool
+from backend.app.core.config import settings, is_serverless
 
 is_sqlite = settings.DATABASE_URL.startswith("sqlite")
 
@@ -8,6 +9,13 @@ if is_sqlite:
     engine = create_engine(
         settings.DATABASE_URL,
         connect_args={"check_same_thread": False},
+        pool_pre_ping=True
+    )
+elif is_serverless:
+    # Serverless (Vercel/Lambda): use NullPool to avoid idle connection exhaustion
+    engine = create_engine(
+        settings.DATABASE_URL,
+        poolclass=NullPool,
         pool_pre_ping=True
     )
 else:
