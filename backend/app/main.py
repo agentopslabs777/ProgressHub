@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from backend.app.core.config import settings
+from backend.app.core.config import settings, is_serverless
 from backend.app.db.session import engine, Base
 import backend.app.models.models  # Ensure all models are registered
 
@@ -25,59 +25,60 @@ from backend.app.api.v1.reviews import router as reviews_router
 from backend.app.api.v1.rewards import router as rewards_router
 from backend.app.api.v1.payments import router as payments_router
 
-# Create tables
-try:
-    Base.metadata.create_all(bind=engine)
-    from sqlalchemy import inspect, text
-    insp = inspect(engine)
-    with engine.connect() as conn:
-        # Check users table
-        if "users" in insp.get_table_names():
-            u_cols = [c["name"] for c in insp.get_columns("users")]
-            if "referral_link" not in u_cols:
-                conn.execute(text("ALTER TABLE users ADD COLUMN referral_link VARCHAR(500)"))
-            if "referral_link_approved" not in u_cols:
-                conn.execute(text("ALTER TABLE users ADD COLUMN referral_link_approved BOOLEAN DEFAULT 1"))
+# Create tables & run updates (skipped in serverless to optimize cold-start speed)
+if not is_serverless:
+    try:
+        Base.metadata.create_all(bind=engine)
+        from sqlalchemy import inspect, text
+        insp = inspect(engine)
+        with engine.connect() as conn:
+            # Check users table
+            if "users" in insp.get_table_names():
+                u_cols = [c["name"] for c in insp.get_columns("users")]
+                if "referral_link" not in u_cols:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN referral_link VARCHAR(500)"))
+                if "referral_link_approved" not in u_cols:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN referral_link_approved BOOLEAN DEFAULT 1"))
 
-        # Check programs table
-        if "programs" in insp.get_table_names():
-            p_cols = [c["name"] for c in insp.get_columns("programs")]
-            if "price" not in p_cols:
-                conn.execute(text("ALTER TABLE programs ADD COLUMN price FLOAT DEFAULT 2000.0"))
-            if "allow_redemption" not in p_cols:
-                conn.execute(text("ALTER TABLE programs ADD COLUMN allow_redemption BOOLEAN DEFAULT 1"))
-            if "max_redemption_percent" not in p_cols:
-                conn.execute(text("ALTER TABLE programs ADD COLUMN max_redemption_percent FLOAT DEFAULT 100.0"))
-            if "referral_bonus_points" not in p_cols:
-                conn.execute(text("ALTER TABLE programs ADD COLUMN referral_bonus_points FLOAT DEFAULT 500.0"))
-            if "eligible_for_referral" not in p_cols:
-                conn.execute(text("ALTER TABLE programs ADD COLUMN eligible_for_referral BOOLEAN DEFAULT 1"))
+            # Check programs table
+            if "programs" in insp.get_table_names():
+                p_cols = [c["name"] for c in insp.get_columns("programs")]
+                if "price" not in p_cols:
+                    conn.execute(text("ALTER TABLE programs ADD COLUMN price FLOAT DEFAULT 2000.0"))
+                if "allow_redemption" not in p_cols:
+                    conn.execute(text("ALTER TABLE programs ADD COLUMN allow_redemption BOOLEAN DEFAULT 1"))
+                if "max_redemption_percent" not in p_cols:
+                    conn.execute(text("ALTER TABLE programs ADD COLUMN max_redemption_percent FLOAT DEFAULT 100.0"))
+                if "referral_bonus_points" not in p_cols:
+                    conn.execute(text("ALTER TABLE programs ADD COLUMN referral_bonus_points FLOAT DEFAULT 500.0"))
+                if "eligible_for_referral" not in p_cols:
+                    conn.execute(text("ALTER TABLE programs ADD COLUMN eligible_for_referral BOOLEAN DEFAULT 1"))
 
-        # Check learning_days table
-        if "learning_days" in insp.get_table_names():
-            ld_cols = [c["name"] for c in insp.get_columns("learning_days")]
-            if "base_reward_points" not in ld_cols:
-                conn.execute(text("ALTER TABLE learning_days ADD COLUMN base_reward_points FLOAT"))
+            # Check learning_days table
+            if "learning_days" in insp.get_table_names():
+                ld_cols = [c["name"] for c in insp.get_columns("learning_days")]
+                if "base_reward_points" not in ld_cols:
+                    conn.execute(text("ALTER TABLE learning_days ADD COLUMN base_reward_points FLOAT"))
 
-        # Check google_drive_submissions table
-        if "google_drive_submissions" in insp.get_table_names():
-            gds_cols = [c["name"] for c in insp.get_columns("google_drive_submissions")]
-            if "base_reward_points" not in gds_cols:
-                conn.execute(text("ALTER TABLE google_drive_submissions ADD COLUMN base_reward_points FLOAT DEFAULT 0.0"))
-            if "additional_reward_points" not in gds_cols:
-                conn.execute(text("ALTER TABLE google_drive_submissions ADD COLUMN additional_reward_points FLOAT DEFAULT 0.0"))
-            if "reward_awarded" not in gds_cols:
-                conn.execute(text("ALTER TABLE google_drive_submissions ADD COLUMN reward_awarded BOOLEAN DEFAULT 0"))
+            # Check google_drive_submissions table
+            if "google_drive_submissions" in insp.get_table_names():
+                gds_cols = [c["name"] for c in insp.get_columns("google_drive_submissions")]
+                if "base_reward_points" not in gds_cols:
+                    conn.execute(text("ALTER TABLE google_drive_submissions ADD COLUMN base_reward_points FLOAT DEFAULT 0.0"))
+                if "additional_reward_points" not in gds_cols:
+                    conn.execute(text("ALTER TABLE google_drive_submissions ADD COLUMN additional_reward_points FLOAT DEFAULT 0.0"))
+                if "reward_awarded" not in gds_cols:
+                    conn.execute(text("ALTER TABLE google_drive_submissions ADD COLUMN reward_awarded BOOLEAN DEFAULT 0"))
 
-        # Check conversations table
-        if "conversations" in insp.get_table_names():
-            c_cols = [c["name"] for c in insp.get_columns("conversations")]
-            if "program_id" not in c_cols:
-                conn.execute(text("ALTER TABLE conversations ADD COLUMN program_id VARCHAR(36)"))
+            # Check conversations table
+            if "conversations" in insp.get_table_names():
+                c_cols = [c["name"] for c in insp.get_columns("conversations")]
+                if "program_id" not in c_cols:
+                    conn.execute(text("ALTER TABLE conversations ADD COLUMN program_id VARCHAR(36)"))
 
-        conn.commit()
-except Exception as e:
-    print("Database migration notice:", e)
+            conn.commit()
+    except Exception as e:
+        print("Database migration notice:", e)
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
