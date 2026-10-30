@@ -1,0 +1,70 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 38 34% 97%; --foreground: 212 25% 19%; --card: 0 0% 100%; --card-foreground: 212 25% 19%;
+  --popover: 0 0% 100%; --popover-foreground: 212 25% 19%; --primary: 163 31% 29%; --primary-foreground: 0 0% 100%;
+  --secondary: 155 25% 92%; --secondary-foreground: 163 31% 25%; --muted: 36 20% 93%; --muted-foreground: 210 11% 47%;
+  --accent: 36 71% 91%; --accent-foreground: 29 49% 30%; --destructive: 2 60% 51%; --destructive-foreground: 0 0% 100%;
+  --border: 35 18% 87%; --input: 35 18% 84%; --ring: 163 31% 29%; --radius: .8rem;
+  --app-font-sans: 'DM Sans', sans-serif; --app-font-mono: 'DM Mono', monospace;
+  --sidebar: 36 29% 95%; --sidebar-foreground: 212 25% 22%;
+}
+
+* { box-sizing: border-box; }
+html {
+  overflow-y: scroll;
+  scroll-behavior: smooth;
+  scrollbar-gutter: stable;
+}
+body { 
+  margin: 0; 
+  font-family: var(--app-font-sans); 
+  background: #f8f8f4; 
+  color: #23342e; 
+  -webkit-font-smoothing: antialiased; 
+  min-height: 100vh;
+}
+
+/* Prominent custom scrollbars for all scrollable containers and tables */
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+::-webkit-scrollbar-track {
+  background: #f0f3ee;
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background: #abbab0;
+  border-radius: 6px;
+  border: 2px solid #f0f3ee;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #738b7d;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #abbab0 #f0f3ee;
+}
+button, input, select, textarea { font: inherit; }
+.display { font-family: 'Manrope', sans-serif; letter-spacing: -.035em; }
+.panel { background: #ffffff; border: 1px solid #e5e8e2; border-radius: 14px; box-shadow: 0 2px 8px rgba(43,54,49,.025); }
+.field { display:block; width:100%; border:1px solid #dce1d8; border-radius:8px; background:#fff; padding:10px 12px; color:#293b38; outline:none; transition:border-color .18s, box-shadow .18s; }
+.field:focus { border-color:#346b55; box-shadow:0 0 0 3px rgba(52,107,85,.12); }
+.field::placeholder { color:#9aa39f; }
+.btn { display:inline-flex; align-items:center; justify-content:center; gap:8px; border-radius:8px; padding:9px 15px; font-weight:600; font-size:13px; transition:transform .18s, background .18s, color .18s; cursor:pointer; }
+.btn:hover { transform:translateY(-1px); }
+.btn-primary { background:#2d6350; color:white; border:1px solid #2d6350; }
+.btn-primary:hover { background:#245343; }
+.btn-soft { background:#fff; color:#41524d; border:1px solid #dce1d8; }
+.btn-soft:hover { background:#f5f7f4; }
+.nav-link { display:flex; align-items:center; gap:11px; padding:9px 12px; border-radius:8px; color:#64716c; font-size:13px; font-weight:550; text-decoration:none; transition:background .2s,color .2s; }
+.nav-link:hover,.nav-link.active { background:#e5ede7; color:#255744; font-weight:600; }
+.enter { animation:enter .32s ease both; }
+@keyframes enter { from { opacity:0; transform:translateY(6px) } to { opacity:1; transform:none } }
+@media(max-width:768px) { .desktop-nav { display:none!important } .mobile-scroll { overflow-x:auto; } }

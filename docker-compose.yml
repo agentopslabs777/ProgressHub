@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: training_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: training_platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: training_backend
+    restart: always
+    depends_on:
+      - postgres
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:postgrespassword@postgres:5432/training_platform
+      JWT_SECRET_KEY: super-secret-production-random-key-change-me
+      FRONTEND_URL: http://localhost:5173
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./storage/uploads:/app/storage/uploads
+
+volumes:
+  pgdata:

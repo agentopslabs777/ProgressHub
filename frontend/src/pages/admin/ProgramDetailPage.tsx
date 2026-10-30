@@ -1,0 +1,1286 @@
+import React, { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Link, useParams } from 'wouter';
+import {
+  Plus, ArrowLeft, Layers, BookOpen, Settings, CheckSquare,
+  Video, FileText, ChevronDown, ChevronUp, ChevronRight, Trash2, Edit,
+  ExternalLink, Sparkles, Clock, ShieldCheck, FolderClosed, Info,
+  CheckCircle2, ListOrdered, ClipboardCheck, Calendar, Send,
+  FileSpreadsheet, UploadCloud, Download, AlertCircle, CheckCircle
+} from 'lucide-react';
+import { programsApi } from '@/services/api';
+import { PageTitle, StatusBadge, EmptyState, LoadingState, ErrorState, Modal } from '@/components/common/UIComponents';
+
+export function ProgramDetailPage() {
+  const { id = '' } = useParams<{ id: string }>();
+  const queryClient = useQueryClient();
+
+  // Dropdown & Modal states
+  const [addContentDropdownOpen, setAddContentDropdownOpen] = useState(false);
+  const [trackModalOpen, setTrackModalOpen] = useState(false);
+  const [subModuleModalOpen, setSubModuleModalOpen] = useState(false);
+  const [dayModalOpen, setDayModalOpen] = useState(false);
+  const [editDayModalOpen, setEditDayModalOpen] = useState(false);
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importResult, setImportResult] = useState<any>(null);
+  const [importError, setImportError] = useState('');
+
+  // Dedicated 4-Item Modals matching Image 1
+  const [summaryModalOpen, setSummaryModalOpen] = useState(false);
+  const [videoModalOpen, setVideoModalOpen] = useState(false);
+  const [quizModalOpen, setQuizModalOpen] = useState(false);
+  const [assignmentModalOpen, setAssignmentModalOpen] = useState(false);
+
+  // Expand / collapse state for days (defaults to open)
+  const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({});
+
+  const [selectedTrackId, setSelectedTrackId] = useState('');
+  const [selectedDayId, setSelectedDayId] = useState('');
+  const [selectedDay, setSelectedDay] = useState<any>(null);
+
+  // Track Form
+  const [trackName, setTrackName] = useState('');
+  const [trackDesc, setTrackDesc] = useState('');
+
+  // Day Form (Shared between Add and Edit)
+  const [dayTitle, setDayTitle] = useState('');
+  const [dayNumber, setDayNumber] = useState<number | undefined>(undefined);
+  const [dayDesc, setDayDesc] = useState('');
+  const [dayContent, setDayContent] = useState('');
+  const [dayVideo, setDayVideo] = useState('');
+  const [summaryTelugu, setSummaryTelugu] = useState('');
+  const [summaryEnglish, setSummaryEnglish] = useState('');
+  const [summaryMain, setSummaryMain] = useState('');
+  const [summaryUrl, setSummaryUrl] = useState('');
+  const [unlockDelayHours, setUnlockDelayHours] = useState<number>(24);
+  const [unlockMode, setUnlockMode] = useState<string>('both');
+  const [requireDrive, setRequireDrive] = useState(true);
+  const [dayApproval, setDayApproval] = useState(false);
+  const [dayTaskRequired, setDayTaskRequired] = useState(false);
+  const [dayPublished, setDayPublished] = useState(true);
+
+// Live session form removed
+
+  // Quiz form
+  const [quizTitle, setQuizTitle] = useState('');
+  const [quizInstructions, setQuizInstructions] = useState('');
+  const [quizUrl, setQuizUrl] = useState('');
+
+  // Assignment form
+  const [assignmentTitle, setAssignmentTitle] = useState('');
+  const [assignmentInstructions, setAssignmentInstructions] = useState('');
+  const [assignmentUrl, setAssignmentUrl] = useState('');
+
+  const [formError, setFormError] = useState('');
+
+  const { data: program, isLoading, isError, refetch } = useQuery({
+    queryKey: ['program', id],
+    queryFn: () => programsApi.get(id),
+    enabled: !!id
+  });
+
+  const refreshProgram = () => {
+    queryClient.invalidateQueries({ queryKey: ['program', id] });
+    queryClient.invalidateQueries({ queryKey: ['programs'] });
+  };
+
+  const updateProgramMutation = useMutation({
+    mutationFn: (data: any) => programsApi.update(id, data),
+    onSuccess: refreshProgram
+  });
+
+  const addTrackMutation = useMutation({
+    mutationFn: (data: any) => programsApi.addTrack(id, data),
+    onSuccess: () => {
+      refreshProgram();
+      setTrackModalOpen(false);
+      setSubModuleModalOpen(false);
+      setTrackName('');
+      setTrackDesc('');
+    },
+    onError: (err: any) => setFormError(err.message || 'Failed to add track/module')
+  });
+
+  const deleteTrackMutation = useMutation({
+    mutationFn: (trackId: string) => programsApi.deleteTrack(trackId),
+    onSuccess: refreshProgram
+  });
+
+  const addDayMutation = useMutation({
+    mutationFn: (data: any) => programsApi.addDay(selectedTrackId, data),
+    onSuccess: () => {
+      refreshProgram();
+      setDayModalOpen(false);
+      resetDayForm();
+    },
+    onError: (err: any) => setFormError(err.message || 'Failed to add day/lesson')
+  });
+
+  const updateDayMutation = useMutation({
+    mutationFn: (data: any) => programsApi.updateDay(selectedDayId, data),
+    onSuccess: () => {
+      refreshProgram();
+      setEditDayModalOpen(false);
+      setSummaryModalOpen(false);
+      setVideoModalOpen(false);
+      setQuizModalOpen(false);
+      setAssignmentModalOpen(false);
+      resetDayForm();
+    },
+    onError: (err: any) => setFormError(err.message || 'Failed to update day')
+  });
+
+  const toggleDayPublishedMutation = useMutation({
+    mutationFn: ({ dayId, published }: { dayId: string; published: boolean }) =>
+      programsApi.updateDay(dayId, { published }),
+    onSuccess: refreshProgram
+  });
+
+  const deleteDayMutation = useMutation({
+    mutationFn: (dayId: string) => programsApi.deleteDay(dayId),
+    onSuccess: refreshProgram
+  });
+
+  const resetDayForm = () => {
+    setDayTitle('');
+    setDayNumber(undefined);
+    setDayDesc('');
+    setDayContent('');
+    setDayVideo('');
+    setSummaryTelugu('');
+    setSummaryEnglish('');
+    setSummaryMain('');
+    setSummaryUrl('');
+    setQuizUrl('');
+    setAssignmentUrl('');
+    setUnlockDelayHours(24);
+    setUnlockMode('both');
+    setRequireDrive(true);
+    setDayApproval(false);
+    setDayTaskRequired(false);
+    setDayPublished(true);
+    setFormError('');
+  };
+
+  const populateDayForEdit = (day: any) => {
+    setSelectedDayId(day.id);
+    setSelectedDay(day);
+    setDayTitle(day.title || '');
+    setDayNumber(day.dayNumber || day.day_number);
+    setDayDesc(day.description || '');
+    setDayContent(day.content || '');
+    setDayVideo(day.video_url || day.summary_video_url || day.videoUrl || '');
+    setSummaryTelugu(day.summary_telugu || '');
+    setSummaryEnglish(day.summary_english || '');
+    setSummaryMain(day.summary_main || '');
+    setSummaryUrl(day.summary_url || day.summaryUrl || '');
+    setQuizUrl(day.quiz_url || day.quizUrl || '');
+    setAssignmentUrl(day.assignment_url || day.assignmentUrl || '');
+    setUnlockDelayHours(day.unlock_delay_hours ?? 24);
+    setUnlockMode(day.unlock_mode || 'both');
+    setRequireDrive(Boolean(day.require_google_drive_submission));
+    setDayApproval(Boolean(day.require_approval));
+    setDayTaskRequired(Boolean(day.require_task_submission));
+    setDayPublished(Boolean(day.published));
+
+    setQuizTitle(day.title ? `${day.title} Quiz` : 'Daily Quiz');
+    setQuizInstructions(day.description || 'Answer key concept questions based on today\'s lecture.');
+    setAssignmentTitle(day.title ? `${day.title} Assignment` : 'Daily Assignment');
+    setAssignmentInstructions(day.description || 'Complete the assignment and submit your Google Drive evidence link.');
+  };
+
+  const openSummaryModal = (day: any) => {
+    populateDayForEdit(day);
+    setSummaryModalOpen(true);
+  };
+
+  const openVideoModal = (day: any) => {
+    populateDayForEdit(day);
+    setVideoModalOpen(true);
+  };
+
+  const openQuizModal = (day: any) => {
+    populateDayForEdit(day);
+    setQuizModalOpen(true);
+  };
+
+  const openAssignmentModal = (day: any) => {
+    populateDayForEdit(day);
+    setAssignmentModalOpen(true);
+  };
+
+  const toggleExpandDay = (dayId: string) => {
+    setExpandedDays(prev => ({
+      ...prev,
+      [dayId]: prev[dayId] === undefined ? false : !prev[dayId]
+    }));
+  };
+
+  if (isLoading) return <LoadingState label="Loading training program details" />;
+  if (isError || !program) return <ErrorState retry={() => refetch()} />;
+
+  const firstTrackId = program.tracks && program.tracks.length > 0 ? program.tracks[0].id : '';
+
+  return (
+    <div className="space-y-6">
+      {/* Back button */}
+      <div className="mb-2">
+        <Link href="/programs" className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#6e7e76] hover:text-[#235341]">
+          <ArrowLeft size={14} /> Back to Programs List
+        </Link>
+      </div>
+
+      {/* Program Summary Panel */}
+      <div className="panel p-6 bg-white border border-[#e4ebe4]">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-1 max-w-2xl">
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-xs font-bold text-[#2d5d4a] bg-[#eef5f1] px-2.5 py-0.5 rounded-full border border-[#d6e5dc]">
+                {program.code}
+              </span>
+              <StatusBadge status={program.status} />
+            </div>
+            <h1 className="text-xl font-bold text-[#23352e] pt-1">{program.name}</h1>
+            <p className="text-xs text-[#718079] leading-relaxed">
+              {program.description || 'Program description not configured.'}
+            </p>
+          </div>
+
+          {/* TOP RIGHT ACTION BUTTONS (MATCHING IMAGE 2) */}
+          <div className="flex flex-wrap items-center gap-2.5 relative">
+            {/* 1. Import Curriculum from Excel Button (Replaces Live Session) */}
+            <button
+              onClick={() => {
+                setImportFile(null);
+                setImportResult(null);
+                setImportError('');
+                setImportModalOpen(true);
+              }}
+              className="inline-flex items-center gap-2 rounded-lg border border-[#cbd5e1] bg-white px-3.5 py-2 text-xs font-bold text-[#1e293b] hover:bg-[#f8fafc] shadow-xs transition"
+              title="Import all Days, Modules, Videos, Summaries, Quizzes and Assignments at once from Excel"
+            >
+              <FileSpreadsheet size={16} className="text-[#107c41]" />
+              <span>Import Excel</span>
+            </button>
+
+            {/* 2. Solid Blue "+ Add Content" Button with Dropdown (MATCHING IMAGE 2) */}
+            <div className="relative">
+              <button
+                onClick={() => setAddContentDropdownOpen(!addContentDropdownOpen)}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[#0047ba] hover:bg-[#003893] text-white px-4 py-2 text-xs font-bold shadow-sm transition"
+              >
+                <Plus size={15} />
+                <span>Add Content</span>
+              </button>
+
+              {/* DROPDOWN MENU (MATCHING IMAGE 2) */}
+              {addContentDropdownOpen && (
+                <div
+                  className="absolute right-0 top-full mt-1.5 w-52 rounded-xl bg-white shadow-xl border border-[#e2e8f0] py-2 z-50 text-xs font-semibold text-[#1e293b] enter"
+                  onMouseLeave={() => setAddContentDropdownOpen(false)}
+                >
+                  <button
+                    onClick={() => {
+                      setAddContentDropdownOpen(false);
+                      setTrackName('');
+                      setTrackDesc('');
+                      setTrackModalOpen(true);
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[#f1f5f9] text-left transition"
+                  >
+                    <FolderClosed size={16} className="text-[#3b82f6]" />
+                    <span>Add Module</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setAddContentDropdownOpen(false);
+                      setTrackName('');
+                      setTrackDesc('');
+                      setSubModuleModalOpen(true);
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[#f1f5f9] text-left transition"
+                  >
+                    <FileText size={16} className="text-[#64748b]" />
+                    <span>Add Sub-module</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setAddContentDropdownOpen(false);
+                      setSelectedTrackId(firstTrackId);
+                      resetDayForm();
+                      setDayModalOpen(true);
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[#f1f5f9] text-left transition"
+                  >
+                    <Edit size={16} className="text-[#64748b]" />
+                    <span>Add Lesson</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setAddContentDropdownOpen(false);
+                      if (program.tracks?.[0]?.days?.[0]) {
+                        openQuizModal(program.tracks[0].days[0]);
+                      } else {
+                        setSelectedTrackId(firstTrackId);
+                        resetDayForm();
+                        setDayModalOpen(true);
+                      }
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[#f1f5f9] text-left transition"
+                  >
+                    <ListOrdered size={16} className="text-[#64748b]" />
+                    <span>Add Quiz</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setAddContentDropdownOpen(false);
+                      if (program.tracks?.[0]?.days?.[0]) {
+                        openAssignmentModal(program.tracks[0].days[0]);
+                      } else {
+                        setSelectedTrackId(firstTrackId);
+                        resetDayForm();
+                        setDayModalOpen(true);
+                      }
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[#f1f5f9] text-left transition"
+                  >
+                    <ClipboardCheck size={16} className="text-[#64748b]" />
+                    <span>Add Assignment</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* CURRICULUM DAYS & MODULES (MATCHING IMAGE 1) */}
+      <div className="space-y-6">
+        {program.tracks && program.tracks.length > 0 ? (
+          program.tracks.map((track: any) => (
+            <div key={track.id} className="space-y-4">
+              {/* Optional Track Title if multiple tracks */}
+              {program.tracks.length > 1 && (
+                <div className="flex items-center justify-between px-2 pt-2">
+                  <h3 className="text-sm font-bold text-[#334155] uppercase tracking-wider">
+                    {track.name} ({track.days?.length || 0} Days)
+                  </h3>
+                  <button
+                    onClick={() => { setSelectedTrackId(track.id); resetDayForm(); setDayModalOpen(true); }}
+                    className="text-xs font-semibold text-[#0047ba] hover:underline flex items-center gap-1"
+                  >
+                    <Plus size={13} /> Add Day
+                  </button>
+                </div>
+              )}
+
+              {/* Days List (MATCHING IMAGE 1) */}
+              <div className="space-y-4">
+                {track.days && track.days.length > 0 ? (
+                  track.days.map((day: any) => {
+                    const isExpanded = expandedDays[day.id] !== false; // default expanded
+                    const formattedNum = day.dayNumber < 10 ? `0${day.dayNumber}` : day.dayNumber;
+
+                    return (
+                      <div
+                        key={day.id}
+                        className="bg-white rounded-xl border border-[#e2e8f0] shadow-2xs overflow-hidden transition"
+                      >
+                        {/* MAIN DAY / MODULE ROW (MATCHING IMAGE 1 HEADER) */}
+                        <div className="flex items-center justify-between px-6 py-4 border-b border-[#f1f5f9] bg-white">
+                          {/* Left: Folder Icon + Title (e.g. 01.Python Setup) */}
+                          <div className="flex items-center gap-3.5">
+                            <FolderClosed size={20} className="text-[#475569] shrink-0" />
+                            <span className="font-bold text-sm text-[#1e293b]">
+                              {formattedNum}.{day.title}
+                            </span>
+                          </div>
+
+                          {/* Right: + Add Content, (✓) Published ∨, ^ Chevron (MATCHING IMAGE 1) */}
+                          <div className="flex items-center gap-5">
+                            {/* + Add Content link */}
+                            <button
+                              onClick={() => openAssignmentModal(day)}
+                              className="text-xs font-medium text-[#1e293b] hover:text-[#0047ba] transition"
+                            >
+                              + Add Content
+                            </button>
+
+                            {/* (✓) Published ∨ status pill */}
+                            <button
+                              onClick={() => toggleDayPublishedMutation.mutate({ dayId: day.id, published: !day.published })}
+                              className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full transition border ${
+                                day.published
+                                  ? 'bg-[#ecfdf5] text-[#059669] border-[#a7f3d0] hover:bg-[#d1fae5]'
+                                  : 'bg-[#f1f5f9] text-[#64748b] border-[#cbd5e1] hover:bg-[#e2e8f0]'
+                              }`}
+                              title="Click to toggle Published / Draft status"
+                            >
+                              <CheckCircle2 size={14} className={day.published ? 'text-[#059669]' : 'text-[#94a3b8]'} />
+                              <span>{day.published ? 'Published' : 'Draft'}</span>
+                              <ChevronDown size={13} className="opacity-70" />
+                            </button>
+
+                            {/* ^ Chevron to expand / collapse */}
+                            <button
+                              onClick={() => toggleExpandDay(day.id)}
+                              className="p-1 text-[#475569] hover:text-[#0f172a] transition"
+                              title={isExpanded ? 'Collapse Day' : 'Expand Day'}
+                            >
+                              {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* EXPANDED CONTENT: STRICTLY THE 4 ITEMS ONLY (MATCHING IMAGE 1) */}
+                        {isExpanded && (
+                          <div className="divide-y divide-[#f1f5f9] bg-[#ffffff] pl-6 pr-6">
+                            {/* 1. 01.Summary */}
+                            <div
+                              onClick={() => openSummaryModal(day)}
+                              className="flex items-center justify-between py-3.5 pl-6 hover:bg-[#f8fafc] cursor-pointer rounded-lg transition group"
+                            >
+                              <div className="flex items-center gap-3">
+                                <Video size={16} className="text-[#475569] shrink-0" />
+                                <span className="text-xs font-semibold text-[#1e293b] group-hover:text-[#0047ba] transition">
+                                  01.Summary
+                                </span>
+                                {(day.summary_url || day.summaryUrl) && (
+                                  <a
+                                    href={day.summary_url || day.summaryUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#0047ba] hover:underline bg-[#eff6ff] px-2 py-0.5 rounded border border-[#bfdbfe]"
+                                    title="Open redirect link in new tab"
+                                  >
+                                    <ExternalLink size={11} /> Open Link
+                                  </a>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-3">
+                                <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#059669] bg-[#ecfdf5] px-2.5 py-0.5 rounded-full border border-[#a7f3d0]">
+                                  <CheckCircle2 size={13} /> Published <ChevronDown size={12} className="opacity-70" />
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* 2. 02.Main Class Video */}
+                            <div
+                              onClick={() => openVideoModal(day)}
+                              className="flex items-center justify-between py-3.5 pl-6 hover:bg-[#f8fafc] cursor-pointer rounded-lg transition group"
+                            >
+                              <div className="flex items-center gap-3">
+                                <Video size={16} className="text-[#475569] shrink-0" />
+                                <span className="text-xs font-semibold text-[#1e293b] group-hover:text-[#0047ba] transition">
+                                  02.Main Class Video
+                                </span>
+                                {(day.video_url || day.summary_video_url || day.videoUrl) && (
+                                  <a
+                                    href={day.video_url || day.summary_video_url || day.videoUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#0047ba] hover:underline bg-[#eff6ff] px-2 py-0.5 rounded border border-[#bfdbfe]"
+                                    title="Open video link in new tab"
+                                  >
+                                    <ExternalLink size={11} /> Open Video
+                                  </a>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-3">
+                                <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#059669] bg-[#ecfdf5] px-2.5 py-0.5 rounded-full border border-[#a7f3d0]">
+                                  <CheckCircle2 size={13} /> Published <ChevronDown size={12} className="opacity-70" />
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* 3. 03.Quiz (i) */}
+                            <div
+                              onClick={() => openQuizModal(day)}
+                              className="flex items-center justify-between py-3.5 pl-6 hover:bg-[#f8fafc] cursor-pointer rounded-lg transition group"
+                            >
+                              <div className="flex items-center gap-2.5">
+                                <ListOrdered size={16} className="text-[#475569] shrink-0" />
+                                <span className="text-xs font-semibold text-[#1e293b] group-hover:text-[#0047ba] transition">
+                                  03.Quiz
+                                </span>
+                                <Info size={14} className="text-[#94a3b8]" />
+                                {(day.quiz_url || day.quizUrl) && (
+                                  <a
+                                    href={day.quiz_url || day.quizUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#0047ba] hover:underline bg-[#eff6ff] px-2 py-0.5 rounded border border-[#bfdbfe]"
+                                    title="Open quiz link in new tab"
+                                  >
+                                    <ExternalLink size={11} /> Open Quiz
+                                  </a>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-3">
+                                <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#059669] bg-[#ecfdf5] px-2.5 py-0.5 rounded-full border border-[#a7f3d0]">
+                                  <CheckCircle2 size={13} /> Published <ChevronDown size={12} className="opacity-70" />
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* 4. 04.Assignment (i) */}
+                            <div
+                              onClick={() => openAssignmentModal(day)}
+                              className="flex items-center justify-between py-3.5 pl-6 hover:bg-[#f8fafc] cursor-pointer rounded-lg transition group"
+                            >
+                              <div className="flex items-center gap-2.5">
+                                <ClipboardCheck size={16} className="text-[#475569] shrink-0" />
+                                <span className="text-xs font-semibold text-[#1e293b] group-hover:text-[#0047ba] transition">
+                                  04.Assignment
+                                </span>
+                                <Info size={14} className="text-[#94a3b8]" />
+                                {(day.assignment_url || day.assignmentUrl) && (
+                                  <a
+                                    href={day.assignment_url || day.assignmentUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#0047ba] hover:underline bg-[#eff6ff] px-2 py-0.5 rounded border border-[#bfdbfe]"
+                                    title="Open assignment link in new tab"
+                                  >
+                                    <ExternalLink size={11} /> Open Assignment
+                                  </a>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-3">
+                                <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#059669] bg-[#ecfdf5] px-2.5 py-0.5 rounded-full border border-[#a7f3d0]">
+                                  <CheckCircle2 size={13} /> Published <ChevronDown size={12} className="opacity-70" />
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="p-8 panel bg-white text-center text-xs text-[#64748b]">
+                    No modules or days created for this course yet. Click <strong>+ Add Content</strong> to create Day 1!
+                  </div>
+                )}
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="p-12 panel bg-white text-center">
+            <EmptyState
+              title="Curriculum Empty"
+              detail="Click '+ Add Content' above to create your first Module and 7-day learning sessions."
+              icon={Layers}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* ============================================================== */}
+      {/* MODALS FOR EDITING THE 4 DAY ITEMS (MATCHING IMAGE 1)          */}
+      {/* ============================================================== */}
+
+      {/* 1. SUMMARY MODAL (01.Summary) */}
+      {summaryModalOpen && selectedDay && (
+        <Modal
+          title={`Edit 01.Summary: ${selectedDay.title}`}
+          onClose={() => setSummaryModalOpen(false)}
+        >
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              updateDayMutation.mutate({
+                summary_url: summaryUrl,
+                summary_main: summaryMain,
+                summary_english: summaryEnglish,
+                summary_telugu: summaryTelugu
+              });
+            }}
+            className="space-y-4 text-xs"
+          >
+            <div>
+              <label className="mb-1 block font-semibold text-[#334155]">
+                Existing Summary Link / Redirect URL
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  value={summaryUrl}
+                  onChange={(e) => setSummaryUrl(e.target.value)}
+                  placeholder="https://docs.python.org/ or documentation/notion link…"
+                  className="field text-xs flex-1"
+                />
+                {summaryUrl && (
+                  <a
+                    href={summaryUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-soft text-xs shrink-0 flex items-center gap-1"
+                  >
+                    <ExternalLink size={13} /> Test Link
+                  </a>
+                )}
+              </div>
+              <span className="text-[10px] text-[#64748b] mt-1 block">
+                When students click 01.Summary, they will be redirected to this page.
+              </span>
+            </div>
+
+            <div>
+              <label className="mb-1 block font-semibold text-[#334155]">Main Lecture Summary Notes (Optional)</label>
+              <textarea
+                rows={3}
+                value={summaryMain}
+                onChange={(e) => setSummaryMain(e.target.value)}
+                placeholder="Core learning takeaways and bullet points…"
+                className="field text-xs"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block font-semibold text-[#334155]">English Summary (Optional)</label>
+              <textarea
+                rows={2}
+                value={summaryEnglish}
+                onChange={(e) => setSummaryEnglish(e.target.value)}
+                placeholder="Detailed English walkthrough and explanation…"
+                className="field text-xs"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block font-semibold text-[#334155]">Telugu Summary (తెలుగు సారాంశం - Optional)</label>
+              <textarea
+                rows={2}
+                value={summaryTelugu}
+                onChange={(e) => setSummaryTelugu(e.target.value)}
+                placeholder="ఈ సెషన్ యొక్క సారాంశం తెలుగులో రాయండి…"
+                className="field text-xs"
+              />
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2 pt-2 border-t border-[#edf0ea]">
+              <button type="button" className="btn btn-soft text-xs" onClick={() => setSummaryModalOpen(false)}>
+                Cancel
+              </button>
+              <button type="submit" disabled={updateDayMutation.isPending} className="btn btn-primary text-xs">
+                {updateDayMutation.isPending ? 'Saving…' : 'Save Summary'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* 2. MAIN CLASS VIDEO MODAL (02.Main Class Video) */}
+      {videoModalOpen && selectedDay && (
+        <Modal
+          title={`Edit 02.Main Class Video: ${selectedDay.title}`}
+          onClose={() => setVideoModalOpen(false)}
+        >
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              updateDayMutation.mutate({
+                summary_video_url: dayVideo,
+                video_url: dayVideo
+              });
+            }}
+            className="space-y-4 text-xs"
+          >
+            <div>
+              <label className="mb-1 block font-semibold text-[#334155]">Main Class Video Link / Redirect URL</label>
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  required
+                  placeholder="https://www.youtube.com/watch?v=... or MP4 / Vimeo embed URL"
+                  value={dayVideo}
+                  onChange={(e) => setDayVideo(e.target.value)}
+                  className="field text-xs flex-1"
+                />
+                {dayVideo && (
+                  <a
+                    href={dayVideo}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-soft text-xs shrink-0 flex items-center gap-1"
+                  >
+                    <ExternalLink size={13} /> Test Link
+                  </a>
+                )}
+              </div>
+              <span className="text-[10px] text-[#64748b] mt-1 block">
+                Supports YouTube, Vimeo, or direct MP4 lecture video links.
+              </span>
+            </div>
+
+            {dayVideo && (
+              <div className="p-3 bg-[#f8fafc] rounded-xl border border-[#e2e8f0]">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#64748b] block mb-2">Video Preview</span>
+                <div className="aspect-video w-full rounded-lg overflow-hidden bg-black">
+                  <iframe
+                    src={dayVideo.includes('watch?v=') ? dayVideo.replace('watch?v=', 'embed/') : dayVideo}
+                    title="Preview"
+                    className="w-full h-full border-0"
+                    allowFullScreen
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="mt-5 flex justify-end gap-2 pt-2 border-t border-[#edf0ea]">
+              <button type="button" className="btn btn-soft text-xs" onClick={() => setVideoModalOpen(false)}>
+                Cancel
+              </button>
+              <button type="submit" disabled={updateDayMutation.isPending} className="btn btn-primary text-xs">
+                {updateDayMutation.isPending ? 'Saving…' : 'Save Main Video'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* 3. QUIZ MODAL (03.Quiz) */}
+      {quizModalOpen && selectedDay && (
+        <Modal
+          title={`Configure 03.Quiz: ${selectedDay.title}`}
+          onClose={() => setQuizModalOpen(false)}
+        >
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              updateDayMutation.mutate({
+                quiz_url: quizUrl,
+                description: quizInstructions
+              });
+            }}
+            className="space-y-4 text-xs"
+          >
+            <div>
+              <label className="mb-1 block font-semibold text-[#334155]">
+                Existing Quiz Link / Redirect URL
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  value={quizUrl}
+                  onChange={(e) => setQuizUrl(e.target.value)}
+                  placeholder="https://forms.google.com/... or test/quiz platform URL"
+                  className="field text-xs flex-1"
+                />
+                {quizUrl && (
+                  <a
+                    href={quizUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-soft text-xs shrink-0 flex items-center gap-1"
+                  >
+                    <ExternalLink size={13} /> Test Link
+                  </a>
+                )}
+              </div>
+              <span className="text-[10px] text-[#64748b] mt-1 block">
+                When students click 03.Quiz, they will be redirected to this quiz page.
+              </span>
+            </div>
+
+            <div>
+              <label className="mb-1 block font-semibold text-[#334155]">Quiz Title</label>
+              <input
+                type="text"
+                required
+                value={quizTitle}
+                onChange={(e) => setQuizTitle(e.target.value)}
+                className="field text-xs"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block font-semibold text-[#334155]">Quiz Questions & Instructions (Optional)</label>
+              <textarea
+                rows={3}
+                value={quizInstructions}
+                onChange={(e) => setQuizInstructions(e.target.value)}
+                placeholder="Instructions or questions if needed…"
+                className="field text-xs font-mono text-[11px]"
+              />
+            </div>
+
+            <div className="p-3 rounded-xl bg-[#f0f9ff] border border-[#bae6fd] text-[11px] text-[#0369a1] flex items-center gap-2">
+              <Info size={16} className="shrink-0 text-[#0284c7]" />
+              <span>Students can click 03.Quiz to be redirected directly to your existing quiz.</span>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2 pt-2 border-t border-[#edf0ea]">
+              <button type="button" className="btn btn-soft text-xs" onClick={() => setQuizModalOpen(false)}>
+                Cancel
+              </button>
+              <button type="submit" disabled={updateDayMutation.isPending} className="btn btn-primary text-xs">
+                {updateDayMutation.isPending ? 'Saving…' : 'Save Quiz'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* 4. ASSIGNMENT MODAL (04.Assignment) */}
+      {assignmentModalOpen && selectedDay && (
+        <Modal
+          title={`Configure 04.Assignment: ${selectedDay.title}`}
+          onClose={() => setAssignmentModalOpen(false)}
+        >
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              updateDayMutation.mutate({
+                assignment_url: assignmentUrl,
+                require_google_drive_submission: requireDrive,
+                require_approval: dayApproval,
+                description: assignmentInstructions
+              });
+            }}
+            className="space-y-4 text-xs"
+          >
+            <div>
+              <label className="mb-1 block font-semibold text-[#334155]">
+                Existing Assignment Link / Redirect URL
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  value={assignmentUrl}
+                  onChange={(e) => setAssignmentUrl(e.target.value)}
+                  placeholder="https://docs.google.com/... or GitHub / project spec link"
+                  className="field text-xs flex-1"
+                />
+                {assignmentUrl && (
+                  <a
+                    href={assignmentUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-soft text-xs shrink-0 flex items-center gap-1"
+                  >
+                    <ExternalLink size={13} /> Test Link
+                  </a>
+                )}
+              </div>
+              <span className="text-[10px] text-[#64748b] mt-1 block">
+                When students click 04.Assignment, they will be redirected to this assignment page.
+              </span>
+            </div>
+
+            <div>
+              <label className="mb-1 block font-semibold text-[#334155]">Assignment Title</label>
+              <input
+                type="text"
+                required
+                value={assignmentTitle}
+                onChange={(e) => setAssignmentTitle(e.target.value)}
+                className="field text-xs"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block font-semibold text-[#334155]">Assignment Instructions & Deliverables (Optional)</label>
+              <textarea
+                rows={3}
+                value={assignmentInstructions}
+                onChange={(e) => setAssignmentInstructions(e.target.value)}
+                placeholder="Build the practical project, upload files to Google Drive, and submit the link…"
+                className="field text-xs"
+              />
+            </div>
+
+            {/* Google Drive Requirement Checkbox */}
+            <div className="p-3 bg-[#f8fafc] rounded-xl border border-[#e2e8f0] space-y-2">
+              <label className="flex items-center gap-2 cursor-pointer font-semibold text-[#1e293b]">
+                <input
+                  type="checkbox"
+                  checked={requireDrive}
+                  onChange={(e) => setRequireDrive(e.target.checked)}
+                  className="rounded text-[#0047ba]"
+                />
+                <span>Require Student Google Drive Link Submission</span>
+              </label>
+              <p className="text-[11px] text-[#64748b] pl-5">
+                When enabled, the student must provide their Google Drive link on the Task Submission page to complete this day.
+              </p>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2 pt-2 border-t border-[#edf0ea]">
+              <button type="button" className="btn btn-soft text-xs" onClick={() => setAssignmentModalOpen(false)}>
+                Cancel
+              </button>
+              <button type="submit" disabled={updateDayMutation.isPending} className="btn btn-primary text-xs">
+                {updateDayMutation.isPending ? 'Saving…' : 'Save Assignment'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* IMPORT CURRICULUM FROM EXCEL MODAL */}
+      {importModalOpen && (
+        <Modal
+          title="Import Curriculum from Excel / CSV"
+          onClose={() => {
+            if (!isImporting) {
+              setImportModalOpen(false);
+              setImportFile(null);
+              setImportResult(null);
+              setImportError('');
+            }
+          }}
+        >
+          <div className="space-y-4 text-xs">
+            {/* Explanatory banner */}
+            <div className="p-3.5 rounded-xl bg-[#f0fdf4] border border-[#bbf7d0] text-[#14532d] space-y-2">
+              <div className="flex items-start gap-2">
+                <FileSpreadsheet size={18} className="text-[#16a34a] shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="font-bold text-xs text-[#15803d]">Batch Create Course Curriculum</h4>
+                  <p className="text-[11px] text-[#166534] mt-0.5 leading-relaxed">
+                    Upload an Excel (<span className="font-mono font-semibold">.xlsx / .xls</span>) or <span className="font-mono font-semibold">.csv</span> file to generate all learning days (e.g. Day 1 to Day 9), tracks/modules, main class videos, summaries, quizzes, and assignments automatically in sequenced order.
+                  </p>
+                </div>
+              </div>
+
+              {/* Download Template Action */}
+              <div className="pt-2 border-t border-[#bbf7d0]/60 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[11px] font-semibold text-[#166534]">Need the official spreadsheet layout?</span>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await programsApi.downloadTemplate(id, program?.name);
+                    } catch (err: any) {
+                      alert('Download failed: ' + (err.message || 'Error'));
+                    }
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-[#86efac] text-[#15803d] text-[11px] font-bold hover:bg-[#dcfce7] shadow-xs transition"
+                >
+                  <Download size={13} />
+                  <span>Download Excel Template (.xlsx)</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Expected Format Columns Guide */}
+            <div className="p-3 rounded-lg bg-[#f8fafc] border border-[#e2e8f0]">
+              <span className="font-bold text-[#334155] block mb-1.5 text-[11px] uppercase tracking-wider">
+                Recognized Excel Column Headers:
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { name: 'Day', desc: '1, 2, ... 9' },
+                  { name: 'Module', desc: 'Track / Module name' },
+                  { name: 'Day Title', desc: 'Topic title' },
+                  { name: 'Summary', desc: 'Overview notes' },
+                  { name: 'Main Class Video', desc: 'YouTube/Drive/Zoom URL' },
+                  { name: 'Quiz', desc: 'Quiz URL' },
+                  { name: 'Assignment', desc: 'Task / Project instructions' },
+                  { name: 'Checklist', desc: 'Tasks separated by commas' },
+                  { name: 'Resources', desc: 'Reference links' }
+                ].map((col) => (
+                  <span
+                    key={col.name}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white border border-[#cbd5e1] text-[10px] text-[#475569]"
+                    title={col.desc}
+                  >
+                    <span className="font-bold text-[#0f172a]">{col.name}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* Success Results Banner */}
+            {importResult && (
+              <div className="p-4 rounded-xl bg-[#ecfdf5] border border-[#6ee7b7] text-[#065f46] space-y-2.5 animate-fadeIn">
+                <div className="flex items-center gap-2">
+                  <CheckCircle size={18} className="text-[#059669]" />
+                  <span className="font-bold text-xs">{importResult.message}</span>
+                </div>
+                {importResult.stats && (
+                  <div className="grid grid-cols-3 gap-2 pt-2 border-t border-[#a7f3d0] text-[11px]">
+                    <div className="bg-white/80 p-2 rounded-lg border border-[#a7f3d0]">
+                      <span className="text-[#047857] block font-semibold">Days Created</span>
+                      <span className="text-base font-bold text-[#065f46]">{importResult.stats.days_created}</span>
+                    </div>
+                    <div className="bg-white/80 p-2 rounded-lg border border-[#a7f3d0]">
+                      <span className="text-[#047857] block font-semibold">Days Updated</span>
+                      <span className="text-base font-bold text-[#065f46]">{importResult.stats.days_updated}</span>
+                    </div>
+                    <div className="bg-white/80 p-2 rounded-lg border border-[#a7f3d0]">
+                      <span className="text-[#047857] block font-semibold">Resources Added</span>
+                      <span className="text-base font-bold text-[#065f46]">{importResult.stats.resources_created}</span>
+                    </div>
+                    <div className="bg-white/80 p-2 rounded-lg border border-[#a7f3d0]">
+                      <span className="text-[#047857] block font-semibold">Assignments</span>
+                      <span className="text-base font-bold text-[#065f46]">{importResult.stats.tasks_created}</span>
+                    </div>
+                    <div className="bg-white/80 p-2 rounded-lg border border-[#a7f3d0]">
+                      <span className="text-[#047857] block font-semibold">Checklists</span>
+                      <span className="text-base font-bold text-[#065f46]">{importResult.stats.checklists_created}</span>
+                    </div>
+                    <div className="bg-white/80 p-2 rounded-lg border border-[#a7f3d0]">
+                      <span className="text-[#047857] block font-semibold">Modules / Tracks</span>
+                      <span className="text-base font-bold text-[#065f46]">{importResult.stats.tracks_created}</span>
+                    </div>
+                  </div>
+                )}
+                <div className="pt-2 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setImportModalOpen(false);
+                      setImportFile(null);
+                      setImportResult(null);
+                    }}
+                    className="btn btn-primary text-xs"
+                  >
+                    Done & View Curriculum
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Error Message */}
+            {importError && (
+              <div className="p-3 rounded-xl bg-[#fef2f2] border border-[#fecaca] text-[#991b1b] flex items-start gap-2">
+                <AlertCircle size={16} className="text-[#dc2626] shrink-0 mt-0.5" />
+                <span className="text-xs">{importError}</span>
+              </div>
+            )}
+
+            {/* File Upload Form (Shown when not yet completed) */}
+            {!importResult && (
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!importFile) {
+                    setImportError('Please choose an Excel (.xlsx/.xls) or CSV file first.');
+                    return;
+                  }
+                  setIsImporting(true);
+                  setImportError('');
+                  try {
+                    const res = await programsApi.importExcel(id, importFile);
+                    setImportResult(res);
+                    refreshProgram();
+                  } catch (err: any) {
+                    setImportError(err.message || 'Import failed. Please check your Excel structure and try again.');
+                  } finally {
+                    setIsImporting(false);
+                  }
+                }}
+                className="space-y-4"
+              >
+                <div>
+                  <label className="mb-1.5 block font-semibold text-[#334155]">
+                    Select Excel / CSV Curriculum File
+                  </label>
+                  <div className="relative border-2 border-dashed border-[#cbd5e1] hover:border-[#107c41] rounded-xl p-5 text-center transition bg-[#f8fafc]/50">
+                    <input
+                      type="file"
+                      accept=".xlsx,.xls,.csv"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) {
+                          setImportFile(f);
+                          setImportError('');
+                        }
+                      }}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    />
+                    <div className="flex flex-col items-center justify-center space-y-1.5">
+                      <div className="w-10 h-10 rounded-full bg-[#f0fdf4] text-[#16a34a] flex items-center justify-center">
+                        <UploadCloud size={20} />
+                      </div>
+                      {importFile ? (
+                        <div className="space-y-0.5">
+                          <p className="font-bold text-xs text-[#0f172a]">{importFile.name}</p>
+                          <p className="text-[11px] text-[#64748b]">
+                            {(importFile.size / 1024).toFixed(1)} KB — Click to choose a different file
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-0.5">
+                          <p className="font-semibold text-xs text-[#1e293b]">
+                            Click or drag & drop to choose Excel file
+                          </p>
+                          <p className="text-[11px] text-[#64748b]">Supports .xlsx, .xls, and .csv formats</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex justify-end gap-2 pt-3 border-t border-[#edf0ea]">
+                  <button
+                    type="button"
+                    disabled={isImporting}
+                    className="btn btn-soft text-xs"
+                    onClick={() => {
+                      setImportModalOpen(false);
+                      setImportFile(null);
+                      setImportError('');
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!importFile || isImporting}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#107c41] hover:bg-[#0b5c2f] text-white text-xs font-bold shadow-xs disabled:opacity-50 transition"
+                  >
+                    <FileSpreadsheet size={15} />
+                    <span>{isImporting ? 'Importing Curriculum...' : 'Import & Generate Days'}</span>
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </Modal>
+      )}
+
+      {/* ADD MODULE / TRACK MODAL */}
+      {trackModalOpen && (
+        <Modal title="Add Module" onClose={() => setTrackModalOpen(false)}>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              addTrackMutation.mutate({ name: trackName, description: trackDesc });
+            }}
+            className="space-y-3.5 text-xs"
+          >
+            <div>
+              <label className="mb-1 block font-semibold text-[#334155]">Module Name</label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. Python Setup, Data Analytics Basics"
+                value={trackName}
+                onChange={(e) => setTrackName(e.target.value)}
+                className="field text-xs"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block font-semibold text-[#334155]">Module Description</label>
+              <textarea
+                rows={3}
+                placeholder="Description of skills covered in this module…"
+                value={trackDesc}
+                onChange={(e) => setTrackDesc(e.target.value)}
+                className="field text-xs"
+              />
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2 pt-2 border-t border-[#edf0ea]">
+              <button type="button" className="btn btn-soft text-xs" onClick={() => setTrackModalOpen(false)}>
+                Cancel
+              </button>
+              <button type="submit" disabled={addTrackMutation.isPending} className="btn btn-primary text-xs">
+                {addTrackMutation.isPending ? 'Creating…' : 'Create Module'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* ADD DAY / LESSON MODAL */}
+      {dayModalOpen && (
+        <Modal title="Add Lesson / Day" onClose={() => setDayModalOpen(false)}>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              addDayMutation.mutate({
+                title: dayTitle,
+                day_number: dayNumber || 1,
+                description: dayDesc,
+                summary_main: summaryMain,
+                summary_english: summaryEnglish,
+                summary_telugu: summaryTelugu,
+                summary_video_url: dayVideo,
+                require_google_drive_submission: requireDrive,
+                published: true
+              });
+            }}
+            className="space-y-3.5 text-xs"
+          >
+            <div className="grid grid-cols-4 gap-2">
+              <div className="col-span-3">
+                <label className="mb-1 block font-semibold text-[#334155]">Day / Lesson Title</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Python Setup, Control Flow"
+                  value={dayTitle}
+                  onChange={(e) => setDayTitle(e.target.value)}
+                  className="field text-xs"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block font-semibold text-[#334155]">Day #</label>
+                <input
+                  type="number"
+                  value={dayNumber ?? ''}
+                  onChange={(e) => setDayNumber(e.target.value === '' ? undefined : Number(e.target.value))}
+                  placeholder="1"
+                  className="field text-xs"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-1 block font-semibold text-[#334155]">Short Description</label>
+              <input
+                type="text"
+                placeholder="Summary of today's learning objectives…"
+                value={dayDesc}
+                onChange={(e) => setDayDesc(e.target.value)}
+                className="field text-xs"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block font-semibold text-[#334155]">Main Lecture Video URL</label>
+              <input
+                type="url"
+                placeholder="https://www.youtube.com/watch?v=..."
+                value={dayVideo}
+                onChange={(e) => setDayVideo(e.target.value)}
+                className="field text-xs"
+              />
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2 pt-2 border-t border-[#edf0ea]">
+              <button type="button" className="btn btn-soft text-xs" onClick={() => setDayModalOpen(false)}>
+                Cancel
+              </button>
+              <button type="submit" disabled={addDayMutation.isPending} className="btn btn-primary text-xs">
+                {addDayMutation.isPending ? 'Creating…' : 'Create Day'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+export default ProgramDetailPage;
