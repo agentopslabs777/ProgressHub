@@ -5,22 +5,36 @@ from pydantic_settings import BaseSettings
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 PROJECT_ROOT = BASE_DIR.parent
-STORAGE_DIR = PROJECT_ROOT / "storage" / "uploads"
-STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+
+# In serverless environments like Vercel / AWS Lambda, the root filesystem is read-only.
+# Only /tmp is writable.
+is_serverless = bool(os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME"))
+if is_serverless:
+    STORAGE_DIR = Path("/tmp/uploads")
+else:
+    STORAGE_DIR = PROJECT_ROOT / "storage" / "uploads"
+
+try:
+    STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass
 
 # Load environment variables from .env if present
 env_path = PROJECT_ROOT / ".env"
 if env_path.exists():
     load_dotenv(dotenv_path=env_path, override=False)
 
+# Neon cloud database connection string
+DEFAULT_CLOUD_DB = "postgresql://neondb_owner:npg_QgDs49BVXvyU@ep-floral-queen-b561u7iu-pooler.c-7.us-east-2.aws.neon.tech/neondb?sslmode=require"
+
 class Settings(BaseSettings):
     PROJECT_NAME: str = "Training Management and Learning Progress Platform"
     API_V1_PREFIX: str = "/api/v1"
     
-    # Database
+    # Database - uses DATABASE_URL if set, falls back to Neon cloud db on Vercel
     DATABASE_URL: str = os.getenv(
         "DATABASE_URL", 
-        f"sqlite:///{BASE_DIR / 'training_platform.db'}"
+        DEFAULT_CLOUD_DB if is_serverless else f"sqlite:///{BASE_DIR / 'training_platform.db'}"
     )
     
     # JWT Auth
@@ -46,8 +60,12 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-# Normalize database URL if needed
+# Normalize database URL for psycopg2
 if settings.DATABASE_URL.startswith("postgres://"):
     settings.DATABASE_URL = settings.DATABASE_URL.replace("postgres://", "postgresql+psycopg2://", 1)
 elif settings.DATABASE_URL.startswith("postgresql://") and not settings.DATABASE_URL.startswith("postgresql+"):
     settings.DATABASE_URL = settings.DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
+
+# Clean channel_binding for psycopg2 / Linux compatibility
+for cb_param in ["&channel_binding=require", "channel_binding=require&", "channel_binding=require", "channel_binding=prefer"]:
+    settings.DATABASE_URL = settings.DATABASE_URL.replace(cb_param, "")

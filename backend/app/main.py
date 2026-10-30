@@ -26,8 +26,8 @@ from backend.app.api.v1.rewards import router as rewards_router
 from backend.app.api.v1.payments import router as payments_router
 
 # Create tables
-Base.metadata.create_all(bind=engine)
 try:
+    Base.metadata.create_all(bind=engine)
     from sqlalchemy import inspect, text
     insp = inspect(engine)
     with engine.connect() as conn:
