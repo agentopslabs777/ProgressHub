@@ -104,6 +104,9 @@ app.add_middleware(
 @app.get("/api/healthz", tags=["Health"])
 @app.get("/v1/healthz", tags=["Health"])
 @app.get("/api/v1/healthz", tags=["Health"])
+@app.get("/api/index.py", tags=["Health"])
+@app.get("/api/index.py/healthz", tags=["Health"])
+@app.get("/api/index.py/v1/healthz", tags=["Health"])
 def health_check():
     return {"status": "ok", "app": settings.PROJECT_NAME}
 
@@ -135,6 +138,8 @@ for r in _all_routers:
     app.include_router(r, prefix="/api/v1")
     app.include_router(r, prefix="/api")
     app.include_router(r, prefix="/v1")
+    app.include_router(r, prefix="/api/index.py/v1")
+    app.include_router(r, prefix="/api/index.py")
     app.include_router(r)
 
 if __name__ == "__main__":

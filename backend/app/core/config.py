@@ -66,12 +66,30 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-# Normalize database URL for psycopg2
-if settings.DATABASE_URL.startswith("postgres://"):
-    settings.DATABASE_URL = settings.DATABASE_URL.replace("postgres://", "postgresql+psycopg2://", 1)
-elif settings.DATABASE_URL.startswith("postgresql://") and not settings.DATABASE_URL.startswith("postgresql+"):
-    settings.DATABASE_URL = settings.DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
+# Normalize database URL
+if is_serverless:
+    # Use pure-Python pg8000 on serverless to guarantee no libpq.so C-dependency
+    if settings.DATABASE_URL.startswith("postgres://"):
+        settings.DATABASE_URL = settings.DATABASE_URL.replace("postgres://", "postgresql+pg8000://", 1)
+    elif settings.DATABASE_URL.startswith("postgresql://") and not settings.DATABASE_URL.startswith("postgresql+"):
+        settings.DATABASE_URL = settings.DATABASE_URL.replace("postgresql://", "postgresql+pg8000://", 1)
+    elif settings.DATABASE_URL.startswith("postgresql+psycopg2://"):
+        settings.DATABASE_URL = settings.DATABASE_URL.replace("postgresql+psycopg2://", "postgresql+pg8000://", 1)
+    
+    # pg8000 requires query args like sslmode/channel_binding to be stripped as it uses ssl_context
+    for q_arg in [
+        "?sslmode=require", "&sslmode=require", "sslmode=require",
+        "?sslmode=prefer", "&sslmode=prefer", "sslmode=prefer",
+        "?channel_binding=require", "&channel_binding=require", "channel_binding=require",
+        "?channel_binding=prefer", "&channel_binding=prefer", "channel_binding=prefer"
+    ]:
+        settings.DATABASE_URL = settings.DATABASE_URL.replace(q_arg, "")
+else:
+    # Local dev or container: use psycopg2
+    if settings.DATABASE_URL.startswith("postgres://"):
+        settings.DATABASE_URL = settings.DATABASE_URL.replace("postgres://", "postgresql+psycopg2://", 1)
+    elif settings.DATABASE_URL.startswith("postgresql://") and not settings.DATABASE_URL.startswith("postgresql+"):
+        settings.DATABASE_URL = settings.DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
 
-# Clean channel_binding for psycopg2 / Linux compatibility
-for cb_param in ["&channel_binding=require", "channel_binding=require&", "channel_binding=require", "channel_binding=prefer"]:
-    settings.DATABASE_URL = settings.DATABASE_URL.replace(cb_param, "")
+    for cb_param in ["&channel_binding=require", "channel_binding=require&", "channel_binding=require", "channel_binding=prefer"]:
+        settings.DATABASE_URL = settings.DATABASE_URL.replace(cb_param, "")
