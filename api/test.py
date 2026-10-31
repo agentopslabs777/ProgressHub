@@ -6,6 +6,8 @@ import traceback
 
 app = FastAPI(title="Diagnostic Probe")
 
+@app.get("/")
+@app.get("/test")
 @app.get("/api/test")
 def test():
     return {
