@@ -1,10 +1,19 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 import sys
 import os
 import traceback
 
 app = FastAPI(title="Diagnostic Probe")
+
+@app.api_route("/probe/{path:path}", methods=["GET", "POST"])
+@app.api_route("/api/test/probe/{path:path}", methods=["GET", "POST"])
+def probe_path(request: Request, path: str = ""):
+    return {
+        "received_path": path,
+        "url": str(request.url),
+        "scope_path": request.scope.get("path"),
+    }
 
 @app.get("/")
 @app.get("/test")
