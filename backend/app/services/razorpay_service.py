@@ -1,7 +1,10 @@
 import hmac
 import hashlib
 from typing import Dict, Any, Optional, Tuple
-import httpx
+try:
+    import httpx
+except ImportError:
+    httpx = None
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from backend.app.core.config import settings
