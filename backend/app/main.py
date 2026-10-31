@@ -25,8 +25,8 @@ from backend.app.api.v1.reviews import router as reviews_router
 from backend.app.api.v1.rewards import router as rewards_router
 from backend.app.api.v1.payments import router as payments_router
 
-# Create tables & run updates (skipped in serverless to optimize cold-start speed)
-if not is_serverless:
+def init_db():
+    """Initialize database tables and run migration checks if needed."""
     try:
         Base.metadata.create_all(bind=engine)
         from sqlalchemy import inspect, text

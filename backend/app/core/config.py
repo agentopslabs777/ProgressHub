@@ -8,7 +8,13 @@ PROJECT_ROOT = BASE_DIR.parent
 
 # In serverless environments like Vercel / AWS Lambda, the root filesystem is read-only.
 # Only /tmp is writable.
-is_serverless = bool(os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME"))
+is_serverless = bool(
+    os.getenv("VERCEL") 
+    or os.getenv("AWS_LAMBDA_FUNCTION_NAME")
+    or os.getenv("LAMBDA_TASK_ROOT")
+    or os.getenv("AWS_EXECUTION_ENV")
+    or os.path.exists("/var/task")
+)
 if is_serverless:
     STORAGE_DIR = Path("/tmp/uploads")
 else:
