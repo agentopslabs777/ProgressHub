@@ -580,13 +580,23 @@ export const chatApi = {
   },
   getContacts: () => request<any>('/chat/contacts'),
   createConversation: (data: { studentId?: string; employeeId?: string; programId?: string; contactAdmin?: boolean; title?: string }) => {
+    const payload = {
+      student_id: data.studentId,
+      employee_id: data.employeeId,
+      program_id: data.programId,
+      contact_admin: !!data.contactAdmin,
+      title: data.title
+    };
     const p = new URLSearchParams();
     if (data.studentId) p.append('student_id', data.studentId);
     if (data.employeeId) p.append('employee_id', data.employeeId);
     if (data.programId) p.append('program_id', data.programId);
     if (data.contactAdmin) p.append('contact_admin', 'true');
-    if (data.title) p.append('title', data.title);
-    return request<any>(`/chat/conversations?${p.toString()}`, { method: 'POST' });
+    const qs = p.toString();
+    return request<any>(`/chat/conversations${qs ? "?" + qs : ""}`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
   },
   getMessages: (conversationId: string) => request<any[]>(`/chat/conversations/${conversationId}/messages`),
   sendMessage: (conversationId: string, messageText: string) => request<any>(`/chat/conversations/${conversationId}/messages`, {

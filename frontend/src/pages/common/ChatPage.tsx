@@ -42,7 +42,8 @@ export function ChatPage({ user }: { user: User }) {
   const { data: initialMessages = [] } = useQuery({
     queryKey: ['messages', selectedConvId],
     queryFn: () => (selectedConvId ? chatApi.getMessages(selectedConvId) : Promise.resolve([])),
-    enabled: !!selectedConvId
+    enabled: !!selectedConvId,
+    refetchInterval: 3000
   });
 
   // Sync initial messages into live messages
@@ -98,17 +99,35 @@ export function ChatPage({ user }: { user: User }) {
     mutationFn: ({ convId, text }: { convId: string; text: string }) =>
       chatApi.sendMessage(convId, text),
     onSuccess: (newMsg) => {
+      setLiveMessages((prev) => {
+        if (prev.some(m => m.id === newMsg.id)) return prev;
+        return [...prev, newMsg];
+      });
       setInputMessage('');
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      queryClient.invalidateQueries({ queryKey: ['messages', selectedConvId] });
     }
   });
+
+  const [createdConv, setCreatedConv] = useState<any | null>(null);
 
   const createChatMutation = useMutation({
     mutationFn: (data: any) => chatApi.createConversation(data),
     onSuccess: (newConv) => {
-      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      setCreatedConv(newConv);
+      queryClient.setQueryData(['conversations', searchQuery], (old: any[] = []) => {
+        if (!Array.isArray(old)) return [newConv];
+        const exists = old.some((c: any) => c.id === newConv.id);
+        if (exists) return old;
+        return [newConv, ...old];
+      });
       setSelectedConvId(newConv.id);
       setNewChatModalOpen(false);
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      refetchConvs();
+    },
+    onError: (err: any) => {
+      console.error('Failed to create conversation:', err);
     }
   });
 
@@ -124,7 +143,7 @@ export function ChatPage({ user }: { user: User }) {
     }
   };
 
-  const activeConv = conversations.find((c: any) => c.id === selectedConvId);
+  const activeConv = conversations.find((c: any) => c.id === selectedConvId) || (createdConv?.id === selectedConvId ? createdConv : null);
 
   return (
     <div className="space-y-4 max-w-6xl mx-auto pb-10">
@@ -337,9 +356,22 @@ export function ChatPage({ user }: { user: User }) {
         <Modal
           title="Start a New Conversation"
           open={newChatModalOpen}
-          onClose={() => setNewChatModalOpen(false)}
+          onClose={() => {
+            setNewChatModalOpen(false);
+            createChatMutation.reset();
+          }}
         >
           <div className="space-y-4">
+            {createChatMutation.isError && (
+              <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
+                <AlertCircle size={14} className="shrink-0" />
+                <span>
+                  {(createChatMutation.error as any)?.data?.detail ||
+                   (createChatMutation.error as any)?.message ||
+                   'Failed to open conversation. Please try again.'}
+                </span>
+              </div>
+            )}
             {/* Student Policy: Only chat with assigned supporting teacher */}
             {user.role === 'student' && (
               <div className="space-y-2">

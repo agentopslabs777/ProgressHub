@@ -191,17 +191,22 @@ def get_user_chat_contacts(
 
 @router.post("/conversations", response_model=dict)
 def get_or_create_conversation(
-    data: CreateConversationRequest,
+    data: Optional[CreateConversationRequest] = None,
+    student_id: Optional[str] = Query(None),
+    employee_id: Optional[str] = Query(None),
+    program_id: Optional[str] = Query(None),
+    contact_admin: Optional[bool] = Query(False),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    student_id = data.student_id
-    employee_id = data.employee_id
-    program_id = data.program_id
+    req_student_id = (data.student_id if data and data.student_id else None) or student_id
+    req_employee_id = (data.employee_id if data and data.employee_id else None) or employee_id
+    req_program_id = (data.program_id if data and data.program_id else None) or program_id
+    req_contact_admin = (data.contact_admin if data and data.contact_admin is not None else False) or contact_admin
 
     if current_user.role == "student":
-        student_id = current_user.id
-        if not employee_id:
+        req_student_id = current_user.id
+        if not req_employee_id:
             # Find assigned employee from active enrollment
             enrollment = db.query(Enrollment).filter(
                 Enrollment.student_id == current_user.id,
@@ -210,68 +215,86 @@ def get_or_create_conversation(
             ).first()
             if not enrollment or not enrollment.employee_id:
                 raise HTTPException(status_code=400, detail="You do not have an assigned supporting teacher yet.")
-            employee_id = enrollment.employee_id
-            program_id = enrollment.program_id
+            req_employee_id = enrollment.employee_id
+            req_program_id = enrollment.program_id
         else:
             # Verify employee is indeed assigned to this student
             enr = db.query(Enrollment).filter(
                 Enrollment.student_id == current_user.id,
-                Enrollment.employee_id == employee_id,
+                Enrollment.employee_id == req_employee_id,
                 Enrollment.status == "active"
             ).first()
             if not enr:
                 raise HTTPException(status_code=403, detail="Students can only message their assigned supporting teacher.")
-            program_id = enr.program_id
+            if not req_program_id:
+                req_program_id = enr.program_id
 
     elif current_user.role == "employee":
-        if data.contact_admin:
+        if req_contact_admin:
             admin = db.query(User).filter(User.role == "admin", User.status == "active").first()
             if not admin:
                 raise HTTPException(status_code=404, detail="No active admin available.")
-            student_id = current_user.id
-            employee_id = admin.id
+            req_student_id = current_user.id
+            req_employee_id = admin.id
         else:
-            employee_id = current_user.id
-            if not student_id:
+            req_employee_id = current_user.id
+            if not req_student_id:
                 raise HTTPException(status_code=400, detail="Student ID required.")
             # Verify student is assigned to this employee
             enr = db.query(Enrollment).filter(
-                Enrollment.student_id == student_id,
+                Enrollment.student_id == req_student_id,
                 Enrollment.employee_id == current_user.id,
                 Enrollment.status == "active"
             ).first()
             if not enr:
                 raise HTTPException(status_code=403, detail="Employees can only message students assigned to them.")
-            program_id = enr.program_id
+            if not req_program_id:
+                req_program_id = enr.program_id
 
     else:  # Admin
-        if not student_id and not employee_id:
+        if not req_student_id and not req_employee_id:
             raise HTTPException(status_code=400, detail="Must provide student_id or employee_id to contact.")
-        if student_id and not employee_id:
-            employee_id = current_user.id
-        elif employee_id and not student_id:
-            student_id = current_user.id
+        if req_student_id and not req_employee_id:
+            req_employee_id = current_user.id
+        elif req_employee_id and not req_student_id:
+            req_student_id = current_user.id
 
     conv = db.query(Conversation).filter(
-        Conversation.student_id == student_id,
-        Conversation.employee_id == employee_id
+        Conversation.student_id == req_student_id,
+        Conversation.employee_id == req_employee_id
     ).first()
 
     if not conv:
         conv = Conversation(
-            student_id=student_id,
-            employee_id=employee_id,
-            program_id=program_id
+            student_id=req_student_id,
+            employee_id=req_employee_id,
+            program_id=req_program_id
         )
         db.add(conv)
         db.commit()
         db.refresh(conv)
 
+    stu_name = conv.student.full_name if conv.student else "Student"
+    emp_name = conv.employee.full_name if conv.employee else "Teacher"
+    prog_name = conv.program.name if conv.program else None
+
+    last_msg = db.query(ChatMessage).filter(
+        ChatMessage.conversation_id == conv.id
+    ).order_by(ChatMessage.created_at.desc()).first()
+
     return {
         "id": conv.id,
         "student_id": conv.student_id,
+        "student_name": stu_name,
+        "student_email": conv.student.email if conv.student else "",
         "employee_id": conv.employee_id,
-        "program_id": conv.program_id
+        "employee_name": emp_name,
+        "employee_role": conv.employee.role if conv.employee else "employee",
+        "program_id": conv.program_id,
+        "program_name": prog_name,
+        "last_message": last_msg.message_text if last_msg else None,
+        "last_message_at": last_msg.created_at if last_msg else conv.created_at,
+        "unread_count": 0
     }
 
 @router.get("/conversations/{conversation_id}/messages", response_model=List[dict])

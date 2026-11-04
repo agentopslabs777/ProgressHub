@@ -86,9 +86,14 @@ def update_admin_razorpay_config(
     """
     cfg = db.query(RazorpaySetting).first()
     if not cfg:
+        if not data.key_secret or not data.key_secret.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="Razorpay Key Secret is required to connect your account."
+            )
         cfg = RazorpaySetting(
             key_id=data.key_id.strip(),
-            key_secret=data.key_secret.strip() if data.key_secret else "",
+            key_secret=data.key_secret.strip(),
             webhook_secret=data.webhook_secret.strip() if data.webhook_secret else "",
             is_active=True,
             is_test_mode=data.is_test_mode if data.is_test_mode is not None else True,
@@ -99,6 +104,11 @@ def update_admin_razorpay_config(
         cfg.key_id = data.key_id.strip()
         if data.key_secret and data.key_secret.strip():
             cfg.key_secret = data.key_secret.strip()
+        elif not cfg.key_secret:
+            raise HTTPException(
+                status_code=400,
+                detail="Razorpay Key Secret is required to connect your account."
+            )
         if data.webhook_secret is not None:
             cfg.webhook_secret = data.webhook_secret.strip()
         if data.is_test_mode is not None:

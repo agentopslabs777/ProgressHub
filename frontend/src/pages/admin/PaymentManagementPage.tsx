@@ -347,6 +347,7 @@ export function PaymentManagementPage() {
                 </label>
                 <input
                   type="password"
+                  required={!adminConfig?.has_secret}
                   placeholder={adminConfig?.has_secret ? '•••••••••••••••• (leave blank to keep current)' : 'Enter your Razorpay Key Secret'}
                   value={keySecret}
                   onChange={(e) => setKeySecret(e.target.value)}
@@ -365,6 +366,9 @@ export function PaymentManagementPage() {
                   onChange={(e) => setWebhookSecret(e.target.value)}
                   className="field text-xs font-mono w-full"
                 />
+                <p className="text-[11px] text-[#64748b] mt-1 font-mono">
+                  Webhook URL: <span className="font-semibold text-[#1e293b]">{typeof window !== 'undefined' ? `${window.location.origin}/api/v1/payments/webhook` : '/api/v1/payments/webhook'}</span>
+                </p>
               </div>
 
               <div className="flex items-center gap-2 pt-1">
