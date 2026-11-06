@@ -32,6 +32,7 @@ export function ProgramDetailPage() {
   const [videoModalOpen, setVideoModalOpen] = useState(false);
   const [quizModalOpen, setQuizModalOpen] = useState(false);
   const [assignmentModalOpen, setAssignmentModalOpen] = useState(false);
+  const [openDayMenuId, setOpenDayMenuId] = useState<string | null>(null);
 
   // Expand / collapse state for days (defaults to open)
   const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({});
@@ -105,7 +106,8 @@ export function ProgramDetailPage() {
 
   const deleteTrackMutation = useMutation({
     mutationFn: (trackId: string) => programsApi.deleteTrack(trackId),
-    onSuccess: refreshProgram
+    onSuccess: refreshProgram,
+    onError: (err: any) => alert(err?.message || 'Failed to delete module')
   });
 
   const addDayMutation = useMutation({
@@ -135,12 +137,20 @@ export function ProgramDetailPage() {
   const toggleDayPublishedMutation = useMutation({
     mutationFn: ({ dayId, published }: { dayId: string; published: boolean }) =>
       programsApi.updateDay(dayId, { published }),
-    onSuccess: refreshProgram
+    onSuccess: () => {
+      refreshProgram();
+      setOpenDayMenuId(null);
+    },
+    onError: (err: any) => alert(err?.message || 'Failed to update day status')
   });
 
   const deleteDayMutation = useMutation({
     mutationFn: (dayId: string) => programsApi.deleteDay(dayId),
-    onSuccess: refreshProgram
+    onSuccess: () => {
+      refreshProgram();
+      setOpenDayMenuId(null);
+    },
+    onError: (err: any) => alert(err?.message || 'Failed to delete day')
   });
 
   const resetDayForm = () => {
@@ -365,20 +375,31 @@ export function ProgramDetailPage() {
         {program.tracks && program.tracks.length > 0 ? (
           program.tracks.map((track: any) => (
             <div key={track.id} className="space-y-4">
-              {/* Optional Track Title if multiple tracks */}
-              {program.tracks.length > 1 && (
-                <div className="flex items-center justify-between px-2 pt-2">
-                  <h3 className="text-sm font-bold text-[#334155] uppercase tracking-wider">
-                    {track.name} ({track.days?.length || 0} Days)
-                  </h3>
+              {/* Module Header */}
+              <div className="flex items-center justify-between px-2 pt-2">
+                <h3 className="text-sm font-bold text-[#334155] uppercase tracking-wider">
+                  {track.name} ({track.days?.length || 0} Days)
+                </h3>
+                <div className="flex items-center gap-3">
                   <button
                     onClick={() => { setSelectedTrackId(track.id); resetDayForm(); setDayModalOpen(true); }}
                     className="text-xs font-semibold text-[#0047ba] hover:underline flex items-center gap-1"
                   >
                     <Plus size={13} /> Add Day
                   </button>
+                  <button
+                    onClick={() => {
+                      if (window.confirm(`Are you sure you want to delete the module "${track.name}" and all its days? This cannot be undone.`)) {
+                        deleteTrackMutation.mutate(track.id);
+                      }
+                    }}
+                    className="text-xs font-semibold text-rose-600 hover:text-rose-700 hover:underline flex items-center gap-1"
+                    title="Delete Module"
+                  >
+                    <Trash2 size={13} /> Delete Module
+                  </button>
                 </div>
-              )}
+              </div>
 
               {/* Days List (MATCHING IMAGE 1) */}
               <div className="space-y-4">
@@ -392,18 +413,21 @@ export function ProgramDetailPage() {
                         key={day.id}
                         className="bg-white rounded-xl border border-[#e2e8f0] shadow-2xs overflow-hidden transition"
                       >
-                        {/* MAIN DAY / MODULE ROW (MATCHING IMAGE 1 HEADER) */}
+                        {/* MAIN DAY / MODULE ROW */}
                         <div className="flex items-center justify-between px-6 py-4 border-b border-[#f1f5f9] bg-white">
                           {/* Left: Folder Icon + Title (e.g. 01.Python Setup) */}
-                          <div className="flex items-center gap-3.5">
+                          <div
+                            className="flex items-center gap-3.5 cursor-pointer flex-1"
+                            onClick={() => toggleExpandDay(day.id)}
+                          >
                             <FolderClosed size={20} className="text-[#475569] shrink-0" />
                             <span className="font-bold text-sm text-[#1e293b]">
                               {formattedNum}.{day.title}
                             </span>
                           </div>
 
-                          {/* Right: + Add Content, (✓) Published ∨, ^ Chevron (MATCHING IMAGE 1) */}
-                          <div className="flex items-center gap-5">
+                          {/* Right: + Add Content, (✓) Published ∨ dropdown, Delete Day, ^ Chevron */}
+                          <div className="flex items-center gap-3 sm:gap-4" onClick={(e) => e.stopPropagation()}>
                             {/* + Add Content link */}
                             <button
                               onClick={() => openAssignmentModal(day)}
@@ -412,25 +436,95 @@ export function ProgramDetailPage() {
                               + Add Content
                             </button>
 
-                            {/* (✓) Published ∨ status pill */}
+                            {/* (✓) Published ∨ status pill & menu */}
+                            <div className="relative">
+                              <button
+                                type="button"
+                                onClick={() => setOpenDayMenuId(openDayMenuId === day.id ? null : day.id)}
+                                className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full transition border cursor-pointer ${
+                                  day.published
+                                    ? 'bg-[#ecfdf5] text-[#059669] border-[#a7f3d0] hover:bg-[#d1fae5]'
+                                    : 'bg-[#f1f5f9] text-[#64748b] border-[#cbd5e1] hover:bg-[#e2e8f0]'
+                                }`}
+                                title="Click to change status (Published / Draft) or Delete"
+                              >
+                                <CheckCircle2 size={14} className={day.published ? 'text-[#059669]' : 'text-[#94a3b8]'} />
+                                <span>{day.published ? 'Published' : 'Draft'}</span>
+                                <ChevronDown size={13} className="opacity-70" />
+                              </button>
+
+                              {openDayMenuId === day.id && (
+                                <div className="absolute right-0 mt-1.5 w-48 bg-white rounded-xl shadow-xl border border-slate-200 py-1.5 z-40 animate-in fade-in zoom-in-95 duration-100">
+                                  <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                    Change Status
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      toggleDayPublishedMutation.mutate({ dayId: day.id, published: true });
+                                    }}
+                                    className={`w-full flex items-center justify-between px-3 py-2 text-xs font-medium transition text-left hover:bg-slate-50 ${
+                                      day.published ? 'text-emerald-700 font-bold bg-emerald-50/60' : 'text-slate-700'
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <CheckCircle2 size={14} className="text-emerald-600" />
+                                      <span>Publish</span>
+                                    </div>
+                                    {day.published && <span className="text-[10px] text-emerald-600 font-semibold">Active</span>}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      toggleDayPublishedMutation.mutate({ dayId: day.id, published: false });
+                                    }}
+                                    className={`w-full flex items-center justify-between px-3 py-2 text-xs font-medium transition text-left hover:bg-slate-50 ${
+                                      !day.published ? 'text-slate-800 font-bold bg-slate-100' : 'text-slate-700'
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <span className="w-3.5 h-3.5 rounded-full border-2 border-slate-400 inline-block" />
+                                      <span>Unpublish (Draft)</span>
+                                    </div>
+                                    {!day.published && <span className="text-[10px] text-slate-500 font-semibold">Draft</span>}
+                                  </button>
+                                  <div className="my-1.5 border-t border-slate-100" />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setOpenDayMenuId(null);
+                                      if (window.confirm(`Are you sure you want to delete Day ${day.dayNumber}: "${day.title}"? This cannot be undone.`)) {
+                                        deleteDayMutation.mutate(day.id);
+                                      }
+                                    }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 transition text-left"
+                                  >
+                                    <Trash2 size={14} className="text-rose-600" />
+                                    <span>Delete Day</span>
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Direct Delete Day Icon */}
                             <button
-                              onClick={() => toggleDayPublishedMutation.mutate({ dayId: day.id, published: !day.published })}
-                              className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full transition border ${
-                                day.published
-                                  ? 'bg-[#ecfdf5] text-[#059669] border-[#a7f3d0] hover:bg-[#d1fae5]'
-                                  : 'bg-[#f1f5f9] text-[#64748b] border-[#cbd5e1] hover:bg-[#e2e8f0]'
-                              }`}
-                              title="Click to toggle Published / Draft status"
+                              type="button"
+                              onClick={() => {
+                                if (window.confirm(`Are you sure you want to delete Day ${day.dayNumber}: "${day.title}"? This cannot be undone.`)) {
+                                  deleteDayMutation.mutate(day.id);
+                                }
+                              }}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                              title="Delete Day"
                             >
-                              <CheckCircle2 size={14} className={day.published ? 'text-[#059669]' : 'text-[#94a3b8]'} />
-                              <span>{day.published ? 'Published' : 'Draft'}</span>
-                              <ChevronDown size={13} className="opacity-70" />
+                              <Trash2 size={16} />
                             </button>
 
                             {/* ^ Chevron to expand / collapse */}
                             <button
+                              type="button"
                               onClick={() => toggleExpandDay(day.id)}
-                              className="p-1 text-[#475569] hover:text-[#0f172a] transition"
+                              className="p-1 text-[#475569] hover:text-[#0f172a] transition cursor-pointer"
                               title={isExpanded ? 'Collapse Day' : 'Expand Day'}
                             >
                               {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
@@ -438,7 +532,7 @@ export function ProgramDetailPage() {
                           </div>
                         </div>
 
-                        {/* EXPANDED CONTENT: STRICTLY THE 4 ITEMS ONLY (MATCHING IMAGE 1) */}
+                        {/* EXPANDED CONTENT: STRICTLY THE 4 ITEMS */}
                         {isExpanded && (
                           <div className="divide-y divide-[#f1f5f9] bg-[#ffffff] pl-6 pr-6">
                             {/* 1. 01.Summary */}
@@ -465,10 +559,32 @@ export function ProgramDetailPage() {
                                 )}
                               </div>
 
-                              <div className="flex items-center gap-3">
-                                <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#059669] bg-[#ecfdf5] px-2.5 py-0.5 rounded-full border border-[#a7f3d0]">
-                                  <CheckCircle2 size={13} /> Published <ChevronDown size={12} className="opacity-70" />
+                              <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
+                                <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-0.5 rounded-full border ${
+                                  day.published
+                                    ? 'text-[#059669] bg-[#ecfdf5] border-[#a7f3d0]'
+                                    : 'text-[#64748b] bg-[#f1f5f9] border-[#cbd5e1]'
+                                }`}>
+                                  <CheckCircle2 size={13} className={day.published ? 'text-[#059669]' : 'text-[#94a3b8]'} />
+                                  <span>{day.published ? 'Published' : 'Draft'}</span>
                                 </span>
+                                {(day.summary_main || day.summary_url || day.summaryUrl) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (window.confirm("Remove Summary and notes from this day?")) {
+                                        updateDayMutation.mutate({
+                                          dayId: day.id,
+                                          data: { summary_main: '', summary_url: '', summary_telugu: '', summary_english: '' }
+                                        });
+                                      }
+                                    }}
+                                    className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition"
+                                    title="Clear / Delete Summary"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                )}
                               </div>
                             </div>
 
@@ -496,10 +612,32 @@ export function ProgramDetailPage() {
                                 )}
                               </div>
 
-                              <div className="flex items-center gap-3">
-                                <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#059669] bg-[#ecfdf5] px-2.5 py-0.5 rounded-full border border-[#a7f3d0]">
-                                  <CheckCircle2 size={13} /> Published <ChevronDown size={12} className="opacity-70" />
+                              <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
+                                <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-0.5 rounded-full border ${
+                                  day.published
+                                    ? 'text-[#059669] bg-[#ecfdf5] border-[#a7f3d0]'
+                                    : 'text-[#64748b] bg-[#f1f5f9] border-[#cbd5e1]'
+                                }`}>
+                                  <CheckCircle2 size={13} className={day.published ? 'text-[#059669]' : 'text-[#94a3b8]'} />
+                                  <span>{day.published ? 'Published' : 'Draft'}</span>
                                 </span>
+                                {(day.video_url || day.summary_video_url || day.videoUrl) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (window.confirm("Remove Class Video from this day?")) {
+                                        updateDayMutation.mutate({
+                                          dayId: day.id,
+                                          data: { video_url: '', summary_video_url: '' }
+                                        });
+                                      }
+                                    }}
+                                    className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition"
+                                    title="Clear / Delete Video"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                )}
                               </div>
                             </div>
 
@@ -528,10 +666,32 @@ export function ProgramDetailPage() {
                                 )}
                               </div>
 
-                              <div className="flex items-center gap-3">
-                                <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#059669] bg-[#ecfdf5] px-2.5 py-0.5 rounded-full border border-[#a7f3d0]">
-                                  <CheckCircle2 size={13} /> Published <ChevronDown size={12} className="opacity-70" />
+                              <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
+                                <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-0.5 rounded-full border ${
+                                  day.published
+                                    ? 'text-[#059669] bg-[#ecfdf5] border-[#a7f3d0]'
+                                    : 'text-[#64748b] bg-[#f1f5f9] border-[#cbd5e1]'
+                                }`}>
+                                  <CheckCircle2 size={13} className={day.published ? 'text-[#059669]' : 'text-[#94a3b8]'} />
+                                  <span>{day.published ? 'Published' : 'Draft'}</span>
                                 </span>
+                                {(day.quiz_url || day.quizUrl) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (window.confirm("Remove Quiz link from this day?")) {
+                                        updateDayMutation.mutate({
+                                          dayId: day.id,
+                                          data: { quiz_url: '' }
+                                        });
+                                      }
+                                    }}
+                                    className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition"
+                                    title="Clear / Delete Quiz"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                )}
                               </div>
                             </div>
 
@@ -560,10 +720,32 @@ export function ProgramDetailPage() {
                                 )}
                               </div>
 
-                              <div className="flex items-center gap-3">
-                                <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#059669] bg-[#ecfdf5] px-2.5 py-0.5 rounded-full border border-[#a7f3d0]">
-                                  <CheckCircle2 size={13} /> Published <ChevronDown size={12} className="opacity-70" />
+                              <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
+                                <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-0.5 rounded-full border ${
+                                  day.published
+                                    ? 'text-[#059669] bg-[#ecfdf5] border-[#a7f3d0]'
+                                    : 'text-[#64748b] bg-[#f1f5f9] border-[#cbd5e1]'
+                                }`}>
+                                  <CheckCircle2 size={13} className={day.published ? 'text-[#059669]' : 'text-[#94a3b8]'} />
+                                  <span>{day.published ? 'Published' : 'Draft'}</span>
                                 </span>
+                                {(day.assignment_url || day.assignmentUrl || day.require_task_submission) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (window.confirm("Remove Assignment from this day?")) {
+                                        updateDayMutation.mutate({
+                                          dayId: day.id,
+                                          data: { assignment_url: '', require_task_submission: false }
+                                        });
+                                      }
+                                    }}
+                                    className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition"
+                                    title="Clear / Delete Assignment"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                )}
                               </div>
                             </div>
                           </div>

@@ -225,6 +225,9 @@ export const teamsApi = {
   }),
   removeMember: (teamId: string, employeeId: string) => request<any>(`/teams/${teamId}/members/${employeeId}`, {
     method: 'DELETE'
+  }),
+  delete: (id: string) => request<any>(`/teams/${id}`, {
+    method: 'DELETE'
   })
 };
 

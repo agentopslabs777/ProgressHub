@@ -192,3 +192,30 @@ def remove_employee_from_team(
     )
 
     return {"message": "Employee removed from team"}
+
+@router.delete("/{team_id}")
+def delete_team(
+    team_id: str,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    team = db.query(Team).filter(Team.id == team_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+
+    name = team.name
+    db.query(TeamMembership).filter(TeamMembership.team_id == team_id).delete(synchronize_session=False)
+    db.delete(team)
+    db.commit()
+
+    log_audit(
+        db=db,
+        actor=current_user,
+        action="DELETE_TEAM",
+        target_type="team",
+        target_id=team_id,
+        details=f"Team '{name}' deleted"
+    )
+
+    return {"message": f"Team '{name}' deleted successfully"}
+

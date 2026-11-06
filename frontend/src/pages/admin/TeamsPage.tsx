@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Users, UserPlus, UserMinus, Edit, Layers } from 'lucide-react';
+import { Plus, Users, UserPlus, UserMinus, Edit, Layers, Trash2 } from 'lucide-react';
 import { teamsApi, employeesApi } from '@/services/api';
 import { PageTitle, StatusBadge, EmptyState, LoadingState, ErrorState, Modal } from '@/components/common/UIComponents';
 
@@ -62,6 +62,22 @@ export function TeamsPage() {
       queryClient.invalidateQueries({ queryKey: ['employees'] });
     }
   });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => teamsApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['teams'] });
+      setEditOpen(false);
+      setSelectedTeam(null);
+    },
+    onError: (err: any) => alert(err.message || 'Failed to delete team')
+  });
+
+  const handleDeleteTeam = (teamId: string, teamName: string) => {
+    if (window.confirm(`Are you sure you want to delete the team "${teamName}"? All member associations with this team will be removed.`)) {
+      deleteMutation.mutate(teamId);
+    }
+  };
 
   const resetForm = () => {
     setName('');
@@ -125,10 +141,17 @@ export function TeamsPage() {
                     <StatusBadge status={team.active ? 'active' : 'inactive'} />
                     <button
                       onClick={() => handleOpenEdit(team)}
-                      className="rounded-lg p-1 text-[#718279] hover:bg-[#edf1eb]"
+                      className="rounded-lg p-1 text-[#718279] hover:bg-[#edf1eb] transition"
                       title="Edit Team"
                     >
                       <Edit size={13} />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteTeam(team.id, team.name)}
+                      className="rounded-lg p-1 text-[#94a3b8] hover:text-[#ef4444] hover:bg-[#fee2e2] transition"
+                      title="Delete Team"
+                    >
+                      <Trash2 size={13} />
                     </button>
                   </div>
                 </div>
@@ -252,13 +275,23 @@ export function TeamsPage() {
                 className="field text-xs"
               />
             </div>
-            <div className="mt-5 flex justify-end gap-2 pt-2 border-t border-[#edf0ea]">
-              <button type="button" className="btn btn-soft text-xs" onClick={() => setEditOpen(false)}>
-                Cancel
+            <div className="mt-5 flex items-center justify-between pt-2 border-t border-[#edf0ea]">
+              <button
+                type="button"
+                onClick={() => handleDeleteTeam(selectedTeam.id, selectedTeam.name)}
+                className="btn bg-[#fee2e2] text-[#b91c1c] hover:bg-[#fecaca] text-xs flex items-center gap-1.5"
+                title="Delete Team"
+              >
+                <Trash2 size={13} /> Delete Team
               </button>
-              <button type="submit" disabled={updateMutation.isPending} className="btn btn-primary text-xs">
-                {updateMutation.isPending ? 'Saving…' : 'Save Changes'}
-              </button>
+              <div className="flex gap-2">
+                <button type="button" className="btn btn-soft text-xs" onClick={() => setEditOpen(false)}>
+                  Cancel
+                </button>
+                <button type="submit" disabled={updateMutation.isPending} className="btn btn-primary text-xs">
+                  {updateMutation.isPending ? 'Saving…' : 'Save Changes'}
+                </button>
+              </div>
             </div>
           </form>
         </Modal>

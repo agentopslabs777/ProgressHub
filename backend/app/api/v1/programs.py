@@ -8,7 +8,7 @@ from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session
 from backend.app.db.session import get_db
 from backend.app.models.models import (
-    Program, LearningTrack, LearningDay, Enrollment, 
+    Program, LearningTrack, LearningDay, Enrollment, DayProgress,
     ChecklistTemplateItem, DailyTask, LearningResource, Flashcard, User
 )
 from backend.app.schemas.schemas import (
@@ -360,6 +360,9 @@ def delete_track(
         raise HTTPException(status_code=404, detail="Track not found")
 
     name = track.name
+    day_ids = [d.id for d in db.query(LearningDay.id).filter(LearningDay.track_id == track_id).all()]
+    if day_ids:
+        db.query(DayProgress).filter(DayProgress.day_id.in_(day_ids)).delete(synchronize_session=False)
     db.delete(track)
     db.commit()
 
@@ -597,6 +600,7 @@ def delete_day(
         raise HTTPException(status_code=404, detail="Learning day not found")
 
     title = day.title
+    db.query(DayProgress).filter(DayProgress.day_id == day_id).delete(synchronize_session=False)
     db.delete(day)
     db.commit()
 
@@ -961,9 +965,16 @@ async def import_program_curriculum_excel(
                 day_number=day_num,
                 title=day_title,
                 description=summary or f"Day {day_num} curriculum and assignments",
+                summary_main=summary if summary else None,
+                video_url=video_url if video_url else None,
+                summary_video_url=video_url if video_url else None,
+                quiz_url=quiz_data if (quiz_data and quiz_data.startswith("http")) else None,
+                assignment_url=assignment_data if (assignment_data and assignment_data.startswith("http")) else None,
                 unlock_mode="both",
                 unlock_delay_hours=24.0,
-                base_reward_points=20.0
+                base_reward_points=20.0,
+                published=True,
+                require_task_submission=bool(assignment_data)
             )
             db.add(day)
             db.commit()
@@ -973,6 +984,17 @@ async def import_program_curriculum_excel(
             day.title = day_title
             if summary:
                 day.description = summary
+                day.summary_main = summary
+            if video_url:
+                day.video_url = video_url
+                day.summary_video_url = video_url
+            if quiz_data and quiz_data.startswith("http"):
+                day.quiz_url = quiz_data
+            if assignment_data:
+                day.require_task_submission = True
+                if assignment_data.startswith("http"):
+                    day.assignment_url = assignment_data
+            day.published = True
             db.commit()
             stats["days_updated"] += 1
 
@@ -1037,7 +1059,7 @@ async def import_program_curriculum_excel(
                 ))
                 stats["resources_created"] += 1
 
-        # Section 3: Additional Resources
+        # Section 4: Additional Resources
         if resources_data:
             links = [lk.strip() for lk in re.split(r"[,;\n]+", resources_data) if lk.strip()]
             for lk_idx, lk in enumerate(links, start=1):
@@ -1056,24 +1078,25 @@ async def import_program_curriculum_excel(
                     ))
                     stats["resources_created"] += 1
 
-        # Section 4: Daily Tasks / Assignment
+        # Section 5: Daily Tasks / Assignment
         if assignment_data:
             existing_task = db.query(DailyTask).filter(DailyTask.day_id == day.id).first()
             if existing_task:
-                existing_task.description = assignment_data
+                existing_task.instructions = assignment_data
+                existing_task.is_required = True
             else:
                 db.add(DailyTask(
                     day_id=day.id,
                     title=f"Day {day_num} Learning Assignment",
-                    description=assignment_data,
-                    task_type="assignment",
-                    display_order=1,
+                    instructions=assignment_data,
+                    submission_type="both",
                     is_required=True,
-                    active=True
+                    max_file_size_mb=25,
+                    allowed_extensions="pdf,doc,docx,zip,png,jpg,jpeg,txt"
                 ))
                 stats["tasks_created"] += 1
 
-        # Section 4: Checklist Items
+        # Section 6: Checklist Items
         if checklist_data:
             items = [it.strip() for it in re.split(r"[,;\n]+", checklist_data) if it.strip()]
             for item_idx, it_text in enumerate(items, start=1):

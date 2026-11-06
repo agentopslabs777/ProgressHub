@@ -25,7 +25,7 @@ In compliance with specification Section 17, the application starts with **zero 
 
 | Portal | Role | Email | Password |
 | :--- | :--- | :--- | :--- |
-| **Admin Portal** | `admin` | `admin@training.local` | `AdminPass123!` |
+| **Admin Portal** | `admin` | `agentopslabs@gmail.com` | `Gvenkat@123` |
 | **Teacher Portal** | `employee` | `employee@training.local` | `EmployeePass123!` |
 | **Student Portal** | `student` | `student@training.local` | `StudentPass123!` |
 

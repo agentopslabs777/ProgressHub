@@ -19,8 +19,8 @@ def init_db(admin_only: bool = False, create_dev: bool = False):
     try:
         # Check / Create Admin Account
         admin = db.query(User).filter(User.role == "admin").first()
-        admin_email = os.getenv("ADMIN_EMAIL", "admin@training.local")
-        admin_pass = os.getenv("ADMIN_PASSWORD", "AdminPass123!")
+        admin_email = os.getenv("ADMIN_EMAIL", "agentopslabs@gmail.com")
+        admin_pass = os.getenv("ADMIN_PASSWORD", "Gvenkat@123")
 
         if not admin:
             admin = User(
