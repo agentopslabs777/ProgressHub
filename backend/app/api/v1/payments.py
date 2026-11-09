@@ -3,12 +3,14 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Request, Header, status
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from backend.app.core.config import settings
 from backend.app.db.session import get_db
 from backend.app.models.models import (
     User, Program, Enrollment, ProgramPurchase, PaymentWebhookEvent,
-    ReferralRecord, ReferralCampaign, Notification, RazorpaySetting
+    ReferralRecord, ReferralCampaign, Notification, RazorpaySetting,
+    LearningTrack, LearningDay
 )
 from backend.app.permissions.permissions import get_current_user, require_admin, log_audit
 from backend.app.services.razorpay_service import (
@@ -32,12 +34,14 @@ class CreateOrderRequest(BaseModel):
     program_id: str
     points_to_redeem: Optional[float] = 0.0
     referral_code: Optional[str] = None
+    is_test_mode: Optional[bool] = False
 
 class VerifyPaymentRequest(BaseModel):
     purchase_id: str
     razorpay_order_id: Optional[str] = None
     razorpay_payment_id: Optional[str] = None
     razorpay_signature: Optional[str] = None
+    is_test_payment: Optional[bool] = False
 
 @router.get("/config", response_model=dict)
 def get_payment_client_config(db: Session = Depends(get_db)):
@@ -166,7 +170,9 @@ def list_purchasable_programs(
     """
     Lists published programs available for enrollment and purchase.
     """
-    programs = db.query(Program).filter(Program.status == "published").all()
+    programs = db.query(Program).filter(
+        func.lower(func.trim(Program.status)) == "published"
+    ).order_by(Program.created_at.desc()).all()
     wallet = get_or_create_wallet(db, current_user.id)
     config = get_or_create_reward_config(db)
 
@@ -180,12 +186,22 @@ def list_purchasable_programs(
 
     results = []
     for p in programs:
-        price = getattr(p, "price", 2000.0) or 2000.0
-        bonus_pts = getattr(p, "referral_bonus_points", 500.0) or 500.0
-        allow_redemption = getattr(p, "allow_redemption", True)
+        price = float(getattr(p, "price", 2000.0) or 2000.0)
+        bonus_pts = float(getattr(p, "referral_bonus_points", 500.0) or 500.0)
+        allow_redemption = bool(getattr(p, "allow_redemption", True))
+        eligible_for_referral = bool(getattr(p, "eligible_for_referral", True))
 
         max_redeem_pts = min(wallet.balance, price / config.point_to_rupee_ratio) if allow_redemption else 0.0
         max_discount = max_redeem_pts * config.point_to_rupee_ratio
+
+        track_count = db.query(LearningTrack).filter(
+            LearningTrack.program_id == p.id,
+            LearningTrack.active == True
+        ).count()
+        day_count = db.query(LearningDay).join(LearningTrack).filter(
+            LearningTrack.program_id == p.id,
+            LearningTrack.active == True
+        ).count()
 
         results.append({
             "id": p.id,
@@ -194,12 +210,18 @@ def list_purchasable_programs(
             "description": p.description,
             "price": price,
             "allow_redemption": allow_redemption,
+            "max_redemption_percent": getattr(p, "max_redemption_percent", 100.0),
             "referral_bonus_points": bonus_pts,
+            "eligible_for_referral": eligible_for_referral,
             "is_enrolled": p.id in enrolled_pids,
             "user_wallet_balance": wallet.balance,
             "user_wallet_inr": wallet.balance * config.point_to_rupee_ratio,
             "max_redeemable_points": max_redeem_pts,
-            "max_discount_inr": max_discount
+            "max_discount_inr": max_discount,
+            "trackCount": track_count,
+            "track_count": track_count,
+            "dayCount": day_count,
+            "day_count": day_count,
         })
     return results
 
@@ -325,37 +347,67 @@ async def create_purchase_order(
             "message": "Program purchase completed successfully using reward points!"
         }
 
-    # Otherwise, create Razorpay Order
-    rzp_order = await create_razorpay_order(
-        amount_inr=final_amount,
-        receipt=f"PUR-{purchase.id[:8].upper()}",
-        notes={
+    # Otherwise, create Razorpay Order (or simulated test order if not configured or in test mode)
+    active_key_id, active_key_sec, _, is_test = get_razorpay_credentials(db)
+    use_test = bool(data.is_test_mode or not (active_key_id and active_key_sec))
+
+    if not use_test:
+        try:
+            rzp_order = await create_razorpay_order(
+                amount_inr=final_amount,
+                receipt=f"PUR-{purchase.id[:8].upper()}",
+                notes={
+                    "purchase_id": purchase.id,
+                    "program_id": program.id,
+                    "student_id": current_user.id,
+                    "referral_code": cleaned_ref_code or ""
+                },
+                db=db
+            )
+            purchase.razorpay_order_id = rzp_order["id"]
+            db.commit()
+
+            return {
+                "purchase_id": purchase.id,
+                "is_free_or_fully_redeemed": False,
+                "is_test_mode": False,
+                "is_simulated": False,
+                "razorpay_order_id": rzp_order["id"],
+                "razorpay_key_id": active_key_id,
+                "amount": rzp_order["amount"],  # in paise
+                "amount_inr": final_amount,
+                "currency": "INR",
+                "program_name": program.name,
+                "customer_name": current_user.full_name,
+                "customer_email": current_user.email,
+                "customer_phone": current_user.contact_number or ""
+            }
+        except Exception:
+            if is_test:
+                use_test = True
+            else:
+                raise
+
+    if use_test:
+        test_order_id = f"order_test_{purchase.id[:16]}"
+        purchase.razorpay_order_id = test_order_id
+        db.commit()
+
+        return {
             "purchase_id": purchase.id,
-            "program_id": program.id,
-            "student_id": current_user.id,
-            "referral_code": cleaned_ref_code or ""
-        },
-        db=db
-    )
-
-    purchase.razorpay_order_id = rzp_order["id"]
-    db.commit()
-
-    active_key_id, _, _, _ = get_razorpay_credentials(db)
-
-    return {
-        "purchase_id": purchase.id,
-        "is_free_or_fully_redeemed": False,
-        "razorpay_order_id": rzp_order["id"],
-        "razorpay_key_id": active_key_id,
-        "amount": rzp_order["amount"],  # in paise
-        "amount_inr": final_amount,
-        "currency": "INR",
-        "program_name": program.name,
-        "customer_name": current_user.full_name,
-        "customer_email": current_user.email,
-        "customer_phone": current_user.contact_number or ""
-    }
+            "is_free_or_fully_redeemed": False,
+            "is_test_mode": True,
+            "is_simulated": True,
+            "razorpay_order_id": test_order_id,
+            "razorpay_key_id": active_key_id or "rzp_test_simulated",
+            "amount": int(round(final_amount * 100)),  # in paise
+            "amount_inr": final_amount,
+            "currency": "INR",
+            "program_name": program.name,
+            "customer_name": current_user.full_name,
+            "customer_email": current_user.email,
+            "customer_phone": current_user.contact_number or ""
+        }
 
 @router.post("/verify", response_model=dict)
 def verify_payment(
@@ -368,14 +420,31 @@ def verify_payment(
         raise HTTPException(status_code=404, detail="Purchase record not found")
 
     if purchase.payment_status == "paid":
-        return {"message": "Payment already verified and enrolled successfully", "purchase_id": purchase.id}
+        return {
+            "success": True,
+            "message": "Payment already verified and enrolled successfully",
+            "purchase_id": purchase.id,
+            "program_id": purchase.program_id,
+            "program_name": purchase.program.name if purchase.program else ""
+        }
 
-    # Verify signature
-    valid = verify_razorpay_signature(
-        razorpay_order_id=data.razorpay_order_id,
-        razorpay_payment_id=data.razorpay_payment_id,
-        razorpay_signature=data.razorpay_signature
+    # Verify signature (or accept simulated / test payment)
+    is_test = bool(
+        data.is_test_payment
+        or (data.razorpay_order_id and data.razorpay_order_id.startswith("order_test_"))
+        or (purchase.razorpay_order_id and purchase.razorpay_order_id.startswith("order_test_"))
+        or not is_razorpay_configured(db)
     )
+
+    if is_test:
+        valid = True
+    else:
+        valid = verify_razorpay_signature(
+            razorpay_order_id=data.razorpay_order_id or purchase.razorpay_order_id or "",
+            razorpay_payment_id=data.razorpay_payment_id or "",
+            razorpay_signature=data.razorpay_signature or "",
+            db=db
+        )
 
     if not valid:
         purchase.payment_status = "failed"
@@ -396,8 +465,8 @@ def verify_payment(
 
     # Mark purchase paid
     purchase.payment_status = "paid"
-    purchase.razorpay_payment_id = data.razorpay_payment_id
-    purchase.razorpay_signature = data.razorpay_signature
+    purchase.razorpay_payment_id = data.razorpay_payment_id or f"pay_test_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+    purchase.razorpay_signature = data.razorpay_signature or "test_signature"
     purchase.paid_at = datetime.utcnow()
 
     # Enroll student if not already enrolled
@@ -406,8 +475,8 @@ def verify_payment(
         Enrollment.program_id == purchase.program_id
     ).first()
 
+    default_emp = db.query(User).filter(User.role == "employee", User.status == "active").first()
     if not existing_enr:
-        default_emp = db.query(User).filter(User.role == "employee", User.status == "active").first()
         enrollment = Enrollment(
             student_id=purchase.student_id,
             program_id=purchase.program_id,
@@ -415,11 +484,12 @@ def verify_payment(
             status="active"
         )
         db.add(enrollment)
-    elif existing_enr.status != "active":
-        if not existing_enr.employee_id:
-            default_emp = db.query(User).filter(User.role == "employee", User.status == "active").first()
-            existing_enr.employee_id = default_emp.id if default_emp else None
+    else:
+        if not existing_enr.employee_id and default_emp:
+            existing_enr.employee_id = default_emp.id
         existing_enr.status = "active"
+        existing_enr.enrolled_at = datetime.utcnow()
+        existing_enr.revoked_at = None
 
     db.commit()
 

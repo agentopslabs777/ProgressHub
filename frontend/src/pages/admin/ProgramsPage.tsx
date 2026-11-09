@@ -173,7 +173,26 @@ export function ProgramsPage() {
                       {p.enrollmentCount} {p.enrollmentCount === 1 ? 'learner' : 'learners'}
                     </td>
                     <td className="px-5 py-3.5">
-                      <StatusBadge status={p.status} />
+                      <div className="flex items-center gap-1.5">
+                        <StatusBadge status={p.status} />
+                        {p.status?.toLowerCase() === 'published' ? (
+                          <button
+                            onClick={() => updateMutation.mutate({ id: p.id, data: { status: 'draft' } })}
+                            className="text-[10px] text-[#92400e] hover:underline font-semibold bg-[#fef3c7] px-1.5 py-0.5 rounded border border-[#fde68a]"
+                            title="Switch to Draft"
+                          >
+                            To Draft
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => updateMutation.mutate({ id: p.id, data: { status: 'published' } })}
+                            className="text-[10px] text-[#059669] hover:underline font-bold bg-[#ecfdf5] px-1.5 py-0.5 rounded border border-[#a7f3d0]"
+                            title="Publish Program to Explore Catalog"
+                          >
+                            Publish
+                          </button>
+                        )}
+                      </div>
                     </td>
                     <td className="px-5 py-3.5 text-right space-x-2">
                       <button

@@ -5,6 +5,7 @@ from typing import List, Optional
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
 from fastapi.responses import Response, StreamingResponse
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from backend.app.db.session import get_db
 from backend.app.models.models import (
@@ -36,7 +37,7 @@ def list_programs(
             Enrollment.status == "active"
         ).distinct().all()
         pids = [p[0] for p in enrolled_pids]
-        query = query.filter(Program.id.in_(pids))
+        query = query.filter((Program.id.in_(pids)) | (func.lower(func.trim(Program.status)) == "published"))
 
     programs = query.order_by(Program.created_at.desc()).all()
     results = []
@@ -210,6 +211,11 @@ def get_program_details(
         "code": program.code,
         "description": program.description,
         "status": program.status,
+        "price": getattr(program, "price", 2000.0) or 2000.0,
+        "allow_redemption": getattr(program, "allow_redemption", True),
+        "max_redemption_percent": getattr(program, "max_redemption_percent", 100.0),
+        "referral_bonus_points": getattr(program, "referral_bonus_points", 500.0) or 500.0,
+        "eligible_for_referral": getattr(program, "eligible_for_referral", True),
         "created_at": program.created_at,
         "createdAt": program.created_at,
         "updated_at": program.updated_at,

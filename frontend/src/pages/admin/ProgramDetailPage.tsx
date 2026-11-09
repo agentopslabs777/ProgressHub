@@ -246,11 +246,35 @@ export function ProgramDetailPage() {
       <div className="panel p-6 bg-white border border-[#e4ebe4]">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="space-y-1 max-w-2xl">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="font-mono text-xs font-bold text-[#2d5d4a] bg-[#eef5f1] px-2.5 py-0.5 rounded-full border border-[#d6e5dc]">
                 {program.code}
               </span>
               <StatusBadge status={program.status} />
+
+              {/* One-click Publish / Draft Switcher */}
+              {program.status?.toLowerCase() === 'published' ? (
+                <button
+                  onClick={() => updateProgramMutation.mutate({ status: 'draft' })}
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-[#fef3c7] text-[#92400e] hover:bg-[#fde68a] border border-[#fcd34d] transition"
+                  title="Unpublish this course (switch to Draft)"
+                >
+                  Unpublish to Draft
+                </button>
+              ) : (
+                <button
+                  onClick={() => updateProgramMutation.mutate({ status: 'published' })}
+                  className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-[#ecfdf5] text-[#059669] hover:bg-[#d1fae5] border border-[#a7f3d0] transition"
+                  title="Publish this course to Explore & Purchase catalog"
+                >
+                  <CheckCircle2 size={12} /> Publish Program
+                </button>
+              )}
+
+              {/* Course Price Badge */}
+              <span className="text-xs font-black text-[#1e293b] bg-[#f8fafc] border border-[#cbd5e1] px-2.5 py-0.5 rounded-full" title="Course Price">
+                ₹{Number(program.price || 2000).toLocaleString('en-IN')}
+              </span>
             </div>
             <h1 className="text-xl font-bold text-[#23352e] pt-1">{program.name}</h1>
             <p className="text-xs text-[#718079] leading-relaxed">

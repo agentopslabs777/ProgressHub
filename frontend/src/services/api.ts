@@ -521,13 +521,14 @@ export const rewardsApi = {
 export const paymentsApi = {
   getConfig: () => request<any>('/payments/config'),
   listPrograms: () => request<any[]>('/payments/programs'),
-  createOrder: (programId: string, pointsToRedeem: number = 0, referralCode?: string) =>
+  createOrder: (programId: string, pointsToRedeem: number = 0, referralCode?: string, isTestMode?: boolean) =>
     request<any>('/payments/create-order', {
       method: 'POST',
       body: JSON.stringify({
         program_id: programId,
         points_to_redeem: pointsToRedeem,
-        referral_code: referralCode
+        referral_code: referralCode,
+        is_test_mode: isTestMode
       })
     }),
   verifyPayment: (data: {
@@ -535,6 +536,7 @@ export const paymentsApi = {
     razorpay_order_id?: string;
     razorpay_payment_id?: string;
     razorpay_signature?: string;
+    is_test_payment?: boolean;
   }) => request<any>('/payments/verify', {
     method: 'POST',
     body: JSON.stringify(data)
