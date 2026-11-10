@@ -141,6 +141,13 @@ export function DailyClassPage() {
     }
   }, [day?.checklist]);
 
+  useEffect(() => {
+    if (day?.google_drive_submission) {
+      setDriveUrl(day.google_drive_submission.google_drive_url || day.google_drive_submission.drive_url || '');
+      setDriveNotes(day.google_drive_submission.notes || '');
+    }
+  }, [day?.google_drive_submission?.id]);
+
   const handleToggleChecklist = (item: any) => {
     if (isReviewer) return;
     const newCompleted = !item.completed;
@@ -167,13 +174,6 @@ export function DailyClassPage() {
   const activeDrive = optimisticDrive || latestDrive;
   const driveHistory = day.google_drive_history || [];
   const activity = day.activity_progress || {};
-
-  useEffect(() => {
-    if (day?.google_drive_submission) {
-      setDriveUrl(day.google_drive_submission.google_drive_url || day.google_drive_submission.drive_url || '');
-      setDriveNotes(day.google_drive_submission.notes || '');
-    }
-  }, [day?.google_drive_submission?.id]);
 
   const requiredChecklist = checklist.filter((i: any) => i.is_required);
   const completedRequired = requiredChecklist.filter((i: any) => i.completed).length;
