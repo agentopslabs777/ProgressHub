@@ -104,10 +104,15 @@ export function MyStudentsPage() {
       const extra = res?.additional_reward_points ? ` (+${res.additional_reward_points} pts added to student wallet)` : '';
       setReviewSuccessMsg(`Evaluation and score saved successfully!${extra}`);
       setReviewErrorMsg('');
-      queryClient.invalidateQueries({ queryKey: ['employee_student_day_detail', activeDay?.id, currentEnrollment?.studentId] });
+      queryClient.invalidateQueries({ queryKey: ['employee_student_day_detail'] });
       queryClient.invalidateQueries({ queryKey: ['employee_student_progress'] });
       queryClient.invalidateQueries({ queryKey: ['my_assigned_enrollments'] });
-      setTimeout(() => setReviewSuccessMsg(''), 5000);
+      queryClient.invalidateQueries({ queryKey: ['student_day'] });
+      queryClient.invalidateQueries({ queryKey: ['student_program_progress'] });
+      queryClient.invalidateQueries({ queryKey: ['wallet'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['my_programs'] });
+      setTimeout(() => setReviewSuccessMsg(''), 7000);
     },
     onError: (err: any) => {
       setReviewErrorMsg(err.message || 'Failed to submit review');
@@ -507,9 +512,24 @@ export function MyStudentsPage() {
                               </span>
                             </div>
 
+                            {/* Saved Evaluation Status Banner */}
+                            {dayDetail.google_drive_submission.reviewed_at && (
+                              <div className="p-3 rounded-xl bg-[#ecfdf5] border-2 border-[#a7f3d0] flex flex-wrap items-center justify-between gap-2 text-xs">
+                                <div className="flex items-center gap-2">
+                                  <CheckCircle2 size={16} className="text-[#059669]" />
+                                  <span className="font-bold text-[#065f46]">
+                                    Recorded Verdict: {dayDetail.google_drive_submission.status?.toUpperCase()} · Score: {dayDetail.google_drive_submission.rating || 0}/100
+                                  </span>
+                                </div>
+                                <span className="text-[11px] font-bold text-[#047857] bg-white px-2.5 py-0.5 rounded-md border border-[#a7f3d0]">
+                                  +{dayDetail.google_drive_submission.additional_reward_points || 0} Bonus Points Credited
+                                </span>
+                              </div>
+                            )}
+
                             {reviewSuccessMsg && (
-                              <div className="p-3 bg-[#e2f5ea] border border-[#a8dfc1] text-[#1c5d3a] rounded-lg text-xs font-bold flex items-center gap-2">
-                                <CheckCircle2 size={16} /> {reviewSuccessMsg}
+                              <div className="p-3 bg-[#e2f5ea] border-2 border-[#a8dfc1] text-[#1c5d3a] rounded-lg text-xs font-bold flex items-center gap-2">
+                                <CheckCircle2 size={18} className="text-[#15803d]" /> {reviewSuccessMsg}
                               </div>
                             )}
 
@@ -598,7 +618,8 @@ export function MyStudentsPage() {
                               >
                                 {reviewMutation.isPending ? 'Saving Evaluation…' : (
                                   <>
-                                    <Check size={14} /> Submit Evaluation & Award Points
+                                    <Check size={14} />
+                                    {dayDetail.google_drive_submission.reviewed_at ? 'Update Evaluation & Award Points' : 'Submit Evaluation & Award Points'}
                                   </>
                                 )}
                               </button>

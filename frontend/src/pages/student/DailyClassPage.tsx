@@ -6,7 +6,7 @@ import {
   Clock, Download, Sparkles, AlertCircle, ArrowRight, ExternalLink,
   RotateCw, Eye, BookOpen, Layers, Check, ChevronLeft, ChevronRight,
   Send, HelpCircle, ShieldCheck, ListOrdered, ClipboardCheck, Info,
-  Award, Coins, Star, MessageSquare
+  Award, Coins, Star, MessageSquare, Edit3
 } from 'lucide-react';
 import { studentApi, submissionsApi, authApi } from '@/services/api';
 import { PageTitle, StatusBadge, LoadingState, ErrorState } from '@/components/common/UIComponents';
@@ -37,6 +37,7 @@ export function DailyClassPage() {
   const [driveNotes, setDriveNotes] = useState('');
   const [driveUrlError, setDriveUrlError] = useState('');
   const [driveSubmitSuccess, setDriveSubmitSuccess] = useState(false);
+  const [showEditDriveForm, setShowEditDriveForm] = useState(false);
 
   // Employee Review Form State
   const [reviewStatus, setReviewStatus] = useState<string>('approved');
@@ -57,7 +58,8 @@ export function DailyClassPage() {
     queryKey: ['student_day', id, studentIdParam],
     queryFn: () => studentApi.getDayDetails(id, studentIdParam),
     enabled: !!id,
-    staleTime: 30000
+    staleTime: 0,
+    refetchOnWindowFocus: true
   });
 
   const isReviewer = currentUser && (currentUser.role === 'admin' || currentUser.role === 'employee');
@@ -91,6 +93,7 @@ export function DailyClassPage() {
       studentApi.submitGoogleDrive(id, data.googleDriveUrl, data.notes),
     onSuccess: (res: any) => {
       setOptimisticDrive(res);
+      setShowEditDriveForm(false);
       queryClient.setQueryData(['student_day', id, studentIdParam], (old: any) => {
         if (!old) return old;
         return {
@@ -100,9 +103,8 @@ export function DailyClassPage() {
       });
       queryClient.invalidateQueries({ queryKey: ['student_day', id, studentIdParam] });
       queryClient.invalidateQueries({ queryKey: ['student_program_progress'] });
+      queryClient.invalidateQueries({ queryKey: ['wallet'] });
       setDriveSubmitSuccess(true);
-      setDriveUrl('');
-      setDriveNotes('');
       setDriveUrlError('');
       setTimeout(() => setDriveSubmitSuccess(false), 5000);
     },
@@ -166,6 +168,13 @@ export function DailyClassPage() {
   const driveHistory = day.google_drive_history || [];
   const activity = day.activity_progress || {};
 
+  useEffect(() => {
+    if (day?.google_drive_submission) {
+      setDriveUrl(day.google_drive_submission.google_drive_url || day.google_drive_submission.drive_url || '');
+      setDriveNotes(day.google_drive_submission.notes || '');
+    }
+  }, [day?.google_drive_submission?.id]);
+
   const requiredChecklist = checklist.filter((i: any) => i.is_required);
   const completedRequired = requiredChecklist.filter((i: any) => i.completed).length;
   const allRequiredChecklistDone = requiredChecklist.length === 0 || completedRequired === requiredChecklist.length;
@@ -193,8 +202,7 @@ export function DailyClassPage() {
       submitted_at: new Date().toISOString()
     };
     setOptimisticDrive(optimistic);
-    setDriveUrl('');
-    setDriveNotes('');
+    setShowEditDriveForm(false);
     submitDriveMutation.mutate({ googleDriveUrl: trimmed, notes: driveNotes.trim() });
   };
 
@@ -679,40 +687,109 @@ export function DailyClassPage() {
                 <div className="text-base font-extrabold text-[#235841]">
                   +{day.base_reward_points ?? 20} pts
                 </div>
-                <div className="text-[10px] text-[#788a81]">Credited upon submission</div>
+                <div className="text-[10px] text-[#788a81]">
+                  {activeDrive ? 'Credited to wallet' : 'Credited on submission'}
+                </div>
               </div>
               <div className="p-3 rounded-xl border border-[#dbe6dc] bg-[#fafcfa]">
                 <div className="text-[10px] uppercase font-bold text-[#6a7c73]">Faculty Bonus</div>
                 <div className="text-base font-extrabold text-[#c28416]">
-                  Up to +50 pts
+                  {activeDrive && typeof activeDrive.additional_reward_points === 'number' && activeDrive.additional_reward_points > 0
+                    ? `+${activeDrive.additional_reward_points} pts`
+                    : 'Up to +50 pts'}
                 </div>
-                <div className="text-[10px] text-[#788a81]">Awarded upon faculty review</div>
+                <div className="text-[10px] text-[#788a81]">
+                  {activeDrive?.status === 'approved' ? 'Awarded by faculty' : 'Awarded upon faculty review'}
+                </div>
               </div>
-              <div className="p-3 rounded-xl border border-[#dbe6dc] bg-[#fafcfa]">
-                <div className="text-[10px] uppercase font-bold text-[#6a7c73]">Total Earned For Day</div>
-                <div className="text-base font-extrabold text-[#1f4e39]">
-                  {latestDrive ? (latestDrive.base_reward_points || 0) + (latestDrive.additional_reward_points || 0) : 0} pts
+              <div className="p-3 rounded-xl border border-[#bce4cc] bg-[#f0f8f3]">
+                <div className="text-[10px] uppercase font-bold text-[#1e583c]">Total Earned For Day</div>
+                <div className="text-base font-black text-[#1b5e3d]">
+                  {activeDrive ? (activeDrive.base_reward_points || 20) + (activeDrive.additional_reward_points || 0) : 0} pts
                 </div>
-                <div className="text-[10px] text-[#788a81]">1 Reward Point = ₹1 INR</div>
+                <div className="text-[10px] text-[#427158] font-semibold">1 Reward Point = ₹1 INR</div>
               </div>
             </div>
 
+            {/* PROMINENT FACULTY EVALUATION & FEEDBACK CARD (Visible when reviewed) */}
+            {activeDrive && (activeDrive.status === 'approved' || activeDrive.rating || activeDrive.review_comments) && (
+              <div className="rounded-2xl border-2 border-[#86efac] bg-gradient-to-br from-[#f0fdf4] to-[#e8f7ee] p-5 space-y-3.5 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#bbf7d0] pb-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-full bg-[#166534] text-white flex items-center justify-center font-black text-sm shadow-xs">
+                      ✓
+                    </div>
+                    <div>
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#166534]">
+                        Instructor Verification Verdict
+                      </div>
+                      <div className="text-sm font-extrabold text-[#14532d] flex items-center gap-1.5">
+                        <span>{activeDrive.status === 'approved' ? 'Approved & Scored' : activeDrive.status.replace('_', ' ')}</span>
+                        <CheckCircle2 size={15} className="text-[#16a34a]" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {activeDrive.rating && (
+                      <div className="px-3.5 py-1.5 rounded-xl bg-white border border-[#bbf7d0] shadow-xs text-right">
+                        <div className="text-[10px] uppercase font-bold text-[#166534]">Performance Score</div>
+                        <div className="text-base font-black text-[#15803d]">{activeDrive.rating} / 100</div>
+                      </div>
+                    )}
+                    {typeof activeDrive.additional_reward_points === 'number' && activeDrive.additional_reward_points > 0 && (
+                      <div className="px-3.5 py-1.5 rounded-xl bg-[#166534] text-white shadow-xs text-right">
+                        <div className="text-[10px] uppercase font-bold text-[#bbf7d0]">Faculty Reward Bonus</div>
+                        <div className="text-base font-black text-white">+{activeDrive.additional_reward_points} pts</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {activeDrive.review_comments && (
+                  <div className="p-3.5 bg-white/95 rounded-xl border border-[#bbf7d0] space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#166534] block">
+                      Faculty Feedback & Remarks:
+                    </span>
+                    <p className="text-xs font-semibold text-[#14532d] italic">
+                      "{activeDrive.review_comments}"
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* CURRENT ACTIVE SUBMISSION CARD (Visible to student) */}
             {activeDrive && (
-              <div className="rounded-xl border border-[#bce4cc] bg-[#f0f8f3] p-4 space-y-2.5">
+              <div className="rounded-xl border border-[#bce4cc] bg-[#f0f8f3] p-4 space-y-3">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div className="flex items-center gap-2 text-xs font-bold text-[#1f5f3e]">
                     <CheckCircle2 size={16} className="text-[#059669]" />
-                    <span>Active Submission (Attempt #{activeDrive.attempt_number || 1})</span>
+                    <span>Active Submitted Link (Attempt #{activeDrive.attempt_number || 1})</span>
                   </div>
-                  <span className="text-[10px] text-[#527061] font-semibold">
-                    Submitted: {activeDrive.submitted_at ? new Date(activeDrive.submitted_at).toLocaleString() : 'Just now'}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-[#527061] font-semibold">
+                      Submitted: {activeDrive.submitted_at ? new Date(activeDrive.submitted_at).toLocaleString() : 'Recently'}
+                    </span>
+                    {(!isReviewer || !studentIdParam) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowEditDriveForm(!showEditDriveForm);
+                          setDriveUrl(activeDrive.google_drive_url || activeDrive.drive_url || '');
+                          setDriveNotes(activeDrive.notes || '');
+                        }}
+                        className="btn btn-soft text-xs py-1 px-3 flex items-center gap-1.5 font-bold shadow-2xs border-[#b2d5c2] hover:bg-[#e4f2ea]"
+                      >
+                        <Edit3 size={12} /> {showEditDriveForm ? 'Hide Editor' : 'Edit / Update Submitted Link'}
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="p-3 bg-white rounded-lg border border-[#cbe1d3] flex items-center justify-between gap-3">
                   <div className="min-w-0 flex-1">
-                    <span className="text-[10px] uppercase font-bold text-[#62776c] block">Submitted Google Drive Link</span>
+                    <span className="text-[10px] uppercase font-bold text-[#62776c] block">Google Drive URL:</span>
                     <a
                       href={activeDrive.google_drive_url || activeDrive.drive_url}
                       target="_blank"
@@ -727,14 +804,14 @@ export function DailyClassPage() {
                     href={activeDrive.google_drive_url || activeDrive.drive_url}
                     target="_blank"
                     rel="noreferrer"
-                    className="btn btn-outline text-xs py-1 px-3 shrink-0"
+                    className="btn btn-primary text-xs py-1.5 px-3 shrink-0 flex items-center gap-1 font-bold"
                   >
-                    Open Link
+                    <ExternalLink size={12} /> Open Document Link
                   </a>
                 </div>
 
                 {activeDrive.notes && (
-                  <p className="text-xs text-[#4b6055] bg-white/70 p-2 rounded-lg border border-[#d6e5dc]">
+                  <p className="text-xs text-[#4b6055] bg-white/70 p-2.5 rounded-lg border border-[#d6e5dc]">
                     <strong className="text-[#2d4439]">Your Notes:</strong> {activeDrive.notes}
                   </p>
                 )}
@@ -742,11 +819,27 @@ export function DailyClassPage() {
             )}
 
             {/* STUDENT SUBMISSION / RESUBMISSION FORM */}
-            {(!isReviewer || !studentIdParam) && (
-              <form onSubmit={validateAndSubmitDrive} className="space-y-3.5 pt-2 border-t border-[#edf1ee]">
+            {(!isReviewer || !studentIdParam) && (!activeDrive || showEditDriveForm) && (
+              <form onSubmit={validateAndSubmitDrive} className="space-y-3.5 pt-3 border-t-2 border-[#d2e5d9] bg-[#fafcfa] p-4 rounded-xl border">
+                <div className="flex items-center justify-between pb-1 border-b border-[#e5ece7]">
+                  <span className="text-xs font-bold text-[#203c2e] flex items-center gap-1.5">
+                    <Edit3 size={14} className="text-[#2b684c]" />
+                    {activeDrive ? `Edit / Resubmit Assignment (Attempt #${(activeDrive.attempt_number || 1) + 1})` : 'Submit Google Drive Assignment'}
+                  </span>
+                  {activeDrive && (
+                    <button
+                      type="button"
+                      onClick={() => setShowEditDriveForm(false)}
+                      className="text-[11px] text-[#697d72] hover:text-[#21352c] font-semibold"
+                    >
+                      ✕ Cancel Edit
+                    </button>
+                  )}
+                </div>
+
                 <div>
                   <label className="mb-1 block text-xs font-semibold text-[#485850]">
-                    {activeDrive ? 'Update / Resubmit Google Drive Link *' : 'Google Drive Link (Word Document / Evidence URL) *'}
+                    {activeDrive ? 'Update Google Drive Link *' : 'Google Drive Link (Word Document / Evidence URL) *'}
                   </label>
                   <input
                     type="text"
@@ -756,6 +849,9 @@ export function DailyClassPage() {
                     onChange={(e) => setDriveUrl(e.target.value)}
                     className="field text-xs py-2"
                   />
+                  <span className="text-[10px] text-[#6d8276] mt-1 block">
+                    Make sure link sharing is set to "Anyone with the link can view".
+                  </span>
                 </div>
 
                 <div>
@@ -786,11 +882,20 @@ export function DailyClassPage() {
                   </div>
                 )}
 
-                <div className="flex justify-end">
+                <div className="flex justify-end gap-2 pt-1">
+                  {activeDrive && (
+                    <button
+                      type="button"
+                      onClick={() => setShowEditDriveForm(false)}
+                      className="btn btn-soft text-xs py-2 px-4"
+                    >
+                      Cancel
+                    </button>
+                  )}
                   <button
                     type="submit"
                     disabled={submitDriveMutation.isPending || !driveUrl.trim()}
-                    className="btn btn-primary text-xs py-2 px-5 flex items-center gap-1.5"
+                    className="btn btn-primary text-xs py-2 px-5 flex items-center gap-1.5 font-bold"
                   >
                     <Send size={13} /> {submitDriveMutation.isPending ? 'Submitting…' : activeDrive ? 'Update / Resubmit Link' : 'Submit Day Assignment'}
                   </button>
