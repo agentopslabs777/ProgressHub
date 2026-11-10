@@ -340,11 +340,32 @@ def get_student_day_details(
 
     target_user = db.query(User).filter(User.id == target_student_id).first()
 
+    # Look up next day and previous day in this track
+    prev_day = db.query(LearningDay).filter(
+        LearningDay.track_id == day.track_id,
+        LearningDay.day_number < day.day_number
+    ).order_by(LearningDay.day_number.desc()).first()
+
+    next_day = db.query(LearningDay).filter(
+        LearningDay.track_id == day.track_id,
+        LearningDay.day_number > day.day_number
+    ).order_by(LearningDay.day_number.asc()).first()
+
     return {
         "id": day.id,
         "track_id": day.track_id,
         "day_number": day.day_number,
         "title": day.title,
+        "prev_day": {
+            "id": prev_day.id,
+            "day_number": prev_day.day_number,
+            "title": prev_day.title
+        } if prev_day else None,
+        "next_day": {
+            "id": next_day.id,
+            "day_number": next_day.day_number,
+            "title": next_day.title
+        } if next_day else None,
         "description": day.description,
         "content": day.content,
         "video_url": day.video_url,

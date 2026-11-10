@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from backend.app.db.session import get_db
 from backend.app.models.models import (
     GoogleDriveSubmission, Enrollment, LearningDay, LearningTrack,
-    Program, User, Notification
+    DayProgress, Program, User, Notification
 )
 from backend.app.schemas.schemas import (
     GoogleDriveSubmissionCreate, GoogleDriveSubmissionReview, GoogleDriveSubmissionResponse
@@ -100,8 +100,51 @@ def submit_google_drive_evidence(
         except Exception:
             pass
 
-    # Check and update day progress (if approval is not required, submitting may complete it)
-    check_and_update_day_progress(db, enrollment, day, current_user)
+    # 1. Automatically mark current day completed upon Google Drive submission
+    day_prog = db.query(DayProgress).filter(
+        DayProgress.enrollment_id == enrollment.id,
+        DayProgress.day_id == day.id
+    ).first()
+    if not day_prog:
+        day_prog = DayProgress(
+            enrollment_id=enrollment.id,
+            day_id=day.id,
+            is_completed=True,
+            completed_at=datetime.utcnow(),
+            summary_viewed=True
+        )
+        db.add(day_prog)
+    else:
+        day_prog.is_completed = True
+        if not day_prog.completed_at:
+            day_prog.completed_at = datetime.utcnow()
+
+    # 2. Automatically unlock the next day in this track so student can proceed immediately
+    next_day = db.query(LearningDay).filter(
+        LearningDay.track_id == day.track_id,
+        LearningDay.day_number > day.day_number
+    ).order_by(LearningDay.day_number.asc()).first()
+
+    if next_day:
+        next_prog = db.query(DayProgress).filter(
+            DayProgress.enrollment_id == enrollment.id,
+            DayProgress.day_id == next_day.id
+        ).first()
+        if not next_prog:
+            next_prog = DayProgress(
+                enrollment_id=enrollment.id,
+                day_id=next_day.id,
+                is_completed=False,
+                is_manually_unlocked=True,
+                unlocked_at=datetime.utcnow(),
+                unlock_reason=f"Unlocked automatically upon Day {day.day_number} assignment submission"
+            )
+            db.add(next_prog)
+        else:
+            next_prog.is_manually_unlocked = True
+            if not next_prog.unlocked_at:
+                next_prog.unlocked_at = datetime.utcnow()
+            next_prog.unlock_reason = f"Unlocked automatically upon Day {day.day_number} assignment submission"
 
     # Notify assigned employee
     if enrollment.employee_id:
@@ -134,7 +177,10 @@ def submit_google_drive_evidence(
         "google_drive_url": submission.google_drive_url,
         "drive_url": submission.google_drive_url,
         "notes": submission.notes,
-        "message": "Google Drive assignment submitted successfully for review"
+        "is_day_completed": True,
+        "next_day_id": next_day.id if next_day else None,
+        "next_day_number": next_day.day_number if next_day else None,
+        "message": f"Assignment submitted successfully! Day {day.day_number} marked completed and Day {next_day.day_number if next_day else ''} unlocked."
     }
 
 @router.get("/google-drive", response_model=List[dict])

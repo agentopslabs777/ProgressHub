@@ -19,15 +19,19 @@ export function DailyClassPage() {
   const searchParams = new URLSearchParams(window.location.search);
   const studentIdParam = searchParams.get('student_id') || undefined;
 
-  // Active section tab: 'summary' | 'video' | 'resources' | 'tasks' | 'submission'
-  const [activeTab, setActiveTab] = useState<'summary' | 'video' | 'resources' | 'tasks' | 'submission'>('summary');
+  // Active section tab: 'summary' | 'video' | 'quiz' | 'assignment' | 'submission'
+  const [activeTab, setActiveTab] = useState<'summary' | 'video' | 'quiz' | 'assignment' | 'submission'>('summary');
   
   // Summary language sub-tab: 'english' | 'telugu' | 'main'
   const [summaryLang, setSummaryLang] = useState<'english' | 'telugu' | 'main'>('english');
 
-  // Flashcard flipper state (under Learning Resources)
+  // Flashcard flipper state (under Quiz tab)
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
+
+  // Interactive Quiz state (under Quiz tab)
+  const [selectedQuizAnswers, setSelectedQuizAnswers] = useState<{ [qId: number]: number }>({});
+  const [quizSubmitted, setQuizSubmitted] = useState(false);
 
   // Optimistic local state for checklist items
   const [localChecklist, setLocalChecklist] = useState<any[]>([]);
@@ -272,7 +276,7 @@ export function DailyClassPage() {
       <div className="panel p-1.5 bg-[#edf2ee] border border-[#d8e2d8] rounded-2xl flex flex-wrap gap-1">
         <button
           onClick={() => setActiveTab('summary')}
-          className={`flex-1 min-w-[130px] rounded-xl py-2 px-3 text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+          className={`flex-1 min-w-[120px] rounded-xl py-2 px-3 text-xs font-bold transition flex items-center justify-center gap-1.5 ${
             activeTab === 'summary' ? 'bg-white text-[#21352d] shadow-xs' : 'text-[#5a6c63] hover:text-[#21352d]'
           }`}
         >
@@ -285,36 +289,39 @@ export function DailyClassPage() {
             activeTab === 'video' ? 'bg-white text-[#21352d] shadow-xs' : 'text-[#5a6c63] hover:text-[#21352d]'
           }`}
         >
-          <Video size={14} /> 2. Learning Videos
+          <Video size={14} /> 2. Main Class Video
         </button>
 
         <button
-          onClick={() => setActiveTab('resources')}
-          className={`flex-1 min-w-[130px] rounded-xl py-2 px-3 text-xs font-bold transition flex items-center justify-center gap-1.5 ${
-            activeTab === 'resources' ? 'bg-white text-[#21352d] shadow-xs' : 'text-[#5a6c63] hover:text-[#21352d]'
+          onClick={() => setActiveTab('quiz')}
+          className={`flex-1 min-w-[120px] rounded-xl py-2 px-3 text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+            activeTab === 'quiz' ? 'bg-white text-[#21352d] shadow-xs' : 'text-[#5a6c63] hover:text-[#21352d]'
           }`}
         >
-          <FileText size={14} /> 3. Learning Resources ({resources.length + (flashcards.length > 0 ? 1 : 0)})
+          <HelpCircle size={14} /> 3. Quiz
         </button>
 
         <button
-          onClick={() => setActiveTab('tasks')}
+          onClick={() => setActiveTab('assignment')}
           className={`flex-1 min-w-[130px] rounded-xl py-2 px-3 text-xs font-bold transition flex items-center justify-center gap-1.5 ${
-            activeTab === 'tasks' ? 'bg-white text-[#21352d] shadow-xs' : 'text-[#5a6c63] hover:text-[#21352d]'
+            activeTab === 'assignment' ? 'bg-white text-[#21352d] shadow-xs' : 'text-[#5a6c63] hover:text-[#21352d]'
           }`}
         >
-          <CheckSquare size={14} /> 4. Tasks & Checklist ({completedRequired}/{requiredChecklist.length})
+          <CheckSquare size={14} /> 4. Assignment
+          {requiredChecklist.length > 0 && (
+            <span className="text-[10px] opacity-80">({completedRequired}/{requiredChecklist.length})</span>
+          )}
         </button>
 
         <button
           onClick={() => setActiveTab('submission')}
-          className={`flex-1 min-w-[130px] rounded-xl py-2 px-3 text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+          className={`flex-1 min-w-[160px] rounded-xl py-2 px-3 text-xs font-bold transition flex items-center justify-center gap-1.5 ${
             activeTab === 'submission'
               ? 'bg-[#255f46] text-white shadow-xs'
               : 'text-[#5a6c63] hover:text-[#21352d]'
           }`}
         >
-          <ExternalLink size={14} /> 5. Submission
+          <Upload size={14} /> 5. Submission Drive Link
           {latestDrive && (
             <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ml-1 ${
               latestDrive.status === 'approved' ? 'bg-[#bce4cc] text-[#13492e]' : 'bg-white/20 text-white'
@@ -389,36 +396,42 @@ export function DailyClassPage() {
               </a>
             )}
             {day.quiz_url && (
-              <a
-                href={day.quiz_url}
-                target="_blank"
-                rel="noreferrer"
+              <button
+                onClick={() => setActiveTab('quiz')}
                 className="flex items-center justify-between p-3 rounded-xl border border-[#dbe6dc] bg-[#f7fbf8] hover:bg-[#edf5ef] text-xs font-bold text-[#235b44] transition"
               >
-                <span>Knowledge Check</span>
-                <ExternalLink size={14} />
-              </a>
+                <span>Go to Day Quiz</span>
+                <ArrowRight size={14} />
+              </button>
             )}
             {day.assignment_url && (
-              <a
-                href={day.assignment_url}
-                target="_blank"
-                rel="noreferrer"
+              <button
+                onClick={() => setActiveTab('assignment')}
                 className="flex items-center justify-between p-3 rounded-xl border border-[#dbe6dc] bg-[#f7fbf8] hover:bg-[#edf5ef] text-xs font-bold text-[#235b44] transition"
               >
-                <span>Assignment Brief</span>
-                <ExternalLink size={14} />
-              </a>
+                <span>Go to Day Assignment</span>
+                <ArrowRight size={14} />
+              </button>
             )}
+          </div>
+
+          <div className="flex justify-end pt-3 border-t border-[#edf1ee]">
+            <button
+              onClick={() => setActiveTab('video')}
+              className="btn btn-primary text-xs py-2 px-4 flex items-center gap-1.5 font-bold"
+            >
+              <span>Next: Main Class Video</span>
+              <ArrowRight size={14} />
+            </button>
           </div>
         </div>
       )}
 
-      {/* SECTION 2: LEARNING VIDEOS */}
+      {/* SECTION 2: MAIN CLASS VIDEO */}
       {activeTab === 'video' && (
         <div className="panel p-6 bg-white border border-[#e4ebe4] space-y-4 rounded-2xl">
           <div className="border-b border-[#edf1ee] pb-3">
-            <h2 className="text-base font-bold text-[#23352e]">Section 2: Learning Videos</h2>
+            <h2 className="text-base font-bold text-[#23352e]">Section 2: Main Class Video</h2>
             <p className="text-xs text-[#6e7e76]">
               Watch instructional sessions and faculty walkthroughs
             </p>
@@ -451,184 +464,442 @@ export function DailyClassPage() {
             </div>
           ) : (
             <div className="p-8 text-center text-xs text-[#7d8e85] border border-dashed border-[#ccd9cf] rounded-2xl">
-              No specific video recording attached for this day. Review the study resources and tasks.
+              No specific video recording attached for this day. Review the study resources, quiz, and assignment.
             </div>
           )}
+
+          <div className="flex justify-between items-center pt-3 border-t border-[#edf1ee]">
+            <button
+              onClick={() => setActiveTab('summary')}
+              className="btn btn-outline text-xs py-2 px-4 flex items-center gap-1.5 font-bold"
+            >
+              <ChevronLeft size={14} />
+              <span>Back: Summary</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('quiz')}
+              className="btn btn-primary text-xs py-2 px-4 flex items-center gap-1.5 font-bold"
+            >
+              <span>Next: Quiz</span>
+              <ArrowRight size={14} />
+            </button>
+          </div>
         </div>
       )}
 
-      {/* SECTION 3: LEARNING RESOURCES */}
-      {activeTab === 'resources' && (
+      {/* SECTION 3: QUIZ */}
+      {activeTab === 'quiz' && (
         <div className="panel p-6 bg-white border border-[#e4ebe4] space-y-6 rounded-2xl">
-          <div className="border-b border-[#edf1ee] pb-3">
-            <h2 className="text-base font-bold text-[#23352e]">Section 3: Learning Resources & Study Materials</h2>
-            <p className="text-xs text-[#6e7e76]">
-              Faculty study guides, code repositories, downloadable cheat-sheets, and interactive concept flashcards
-            </p>
+          <div className="border-b border-[#edf1ee] pb-3 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-bold text-[#23352e] flex items-center gap-2">
+                <HelpCircle size={18} className="text-[#255f46]" /> Section 3: Daily Quiz & Knowledge Check
+              </h2>
+              <p className="text-xs text-[#6e7e76]">
+                Test your understanding of today's core concepts through interactive quizzes and flashcards
+              </p>
+            </div>
+            {day.quiz_url && (
+              <a
+                href={day.quiz_url}
+                target="_blank"
+                rel="noreferrer"
+                className="btn btn-primary text-xs py-2 px-4 flex items-center gap-1.5 font-bold shadow-xs"
+              >
+                <span>Open Official Quiz</span>
+                <ExternalLink size={13} />
+              </a>
+            )}
           </div>
 
-          {resources.length === 0 && flashcards.length === 0 ? (
-            <div className="p-8 text-center text-xs text-[#7d8e85] border border-dashed border-[#ccd9cf] rounded-2xl">
-              No supplementary resources uploaded for this day yet.
-            </div>
-          ) : (
-            <div className="space-y-6">
-              {resources.length > 0 && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {resources.map((res: any) => (
-                    <div key={res.id} className="p-4 rounded-xl border border-[#dde6df] bg-[#fafcfa] flex items-start justify-between gap-3">
-                      <div>
-                        <div className="text-xs font-bold text-[#21352d]">{res.title}</div>
-                        {res.description && <div className="text-[11px] text-[#6d7e75] mt-0.5">{res.description}</div>}
-                        <span className="inline-block text-[10px] font-bold uppercase text-[#295c47] bg-[#e6f2eb] px-2 py-0.5 rounded mt-2">
-                          {res.resource_type || 'Document'}
-                        </span>
-                      </div>
-                      {res.url && (
-                        <a
-                          href={res.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="btn btn-outline text-xs py-1.5 px-3 flex items-center gap-1 shrink-0"
-                        >
-                          Open <ExternalLink size={12} />
-                        </a>
-                      )}
-                    </div>
-                  ))}
+          {/* Official Quiz Card if URL exists */}
+          {day.quiz_url && (
+            <div className="p-4 rounded-xl border border-[#bce0cb] bg-[#f4faf6] flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-[#285d47] text-white flex items-center justify-center shrink-0">
+                  <Award size={20} />
                 </div>
-              )}
-
-              {/* Interactive Flashcards */}
-              {flashcards.length > 0 && (
-                <div className="border-t border-[#edf1ee] pt-4">
-                  <h3 className="text-xs font-bold text-[#23352d] mb-3 flex items-center gap-1.5">
-                    <Layers size={14} className="text-[#255f46]" /> Interactive Concept Flashcards ({flashcards.length})
-                  </h3>
-                  <div
-                    onClick={() => setIsFlipped(!isFlipped)}
-                    className="p-8 rounded-2xl border border-[#bce0cb] bg-[#f4faf6] cursor-pointer min-h-[160px] grid place-items-center text-center select-none shadow-xs transition hover:bg-[#eaf5ee]"
-                  >
-                    <div>
-                      <div className="text-[10px] uppercase font-bold text-[#62776c] mb-1">
-                        Card {currentCardIndex + 1} of {flashcards.length} · Click to flip
-                      </div>
-                      <div className="text-sm font-bold text-[#1f4e39]">
-                        {isFlipped
-                          ? flashcards[currentCardIndex].back_text
-                          : flashcards[currentCardIndex].front_text}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex justify-between items-center mt-3">
-                    <button
-                      disabled={currentCardIndex === 0}
-                      onClick={() => { setCurrentCardIndex(c => Math.max(0, c - 1)); setIsFlipped(false); }}
-                      className="btn btn-outline text-xs py-1 px-3"
-                    >
-                      Previous
-                    </button>
-                    <button
-                      disabled={currentCardIndex >= flashcards.length - 1}
-                      onClick={() => { setCurrentCardIndex(c => Math.min(flashcards.length - 1, c + 1)); setIsFlipped(false); }}
-                      className="btn btn-outline text-xs py-1 px-3"
-                    >
-                      Next Card
-                    </button>
-                  </div>
+                <div>
+                  <h4 className="text-xs font-bold text-[#1f4e39]">Official Day {day.day_number} Quiz Assessment</h4>
+                  <p className="text-[11px] text-[#5e776a]">Complete the faculty quiz to test your learning comprehension</p>
                 </div>
-              )}
+              </div>
+              <a
+                href={day.quiz_url}
+                target="_blank"
+                rel="noreferrer"
+                className="btn btn-primary text-xs py-2 px-4 shrink-0 font-bold"
+              >
+                Launch Quiz <ExternalLink size={12} className="inline ml-1" />
+              </a>
             </div>
           )}
+
+          {/* Interactive Flashcards */}
+          {flashcards.length > 0 && (
+            <div className="border border-[#e0e8e2] rounded-2xl p-5 bg-[#fafcfa] space-y-3">
+              <h3 className="text-xs font-bold text-[#23352d] flex items-center gap-1.5">
+                <Layers size={14} className="text-[#255f46]" /> Concept Flashcards ({flashcards.length})
+              </h3>
+              <div
+                onClick={() => setIsFlipped(!isFlipped)}
+                className="p-8 rounded-2xl border border-[#bce0cb] bg-[#f4faf6] cursor-pointer min-h-[140px] grid place-items-center text-center select-none shadow-xs transition hover:bg-[#eaf5ee]"
+              >
+                <div>
+                  <div className="text-[10px] uppercase font-bold text-[#62776c] mb-1">
+                    Card {currentCardIndex + 1} of {flashcards.length} · Click to flip
+                  </div>
+                  <div className="text-sm font-bold text-[#1f4e39]">
+                    {isFlipped
+                      ? flashcards[currentCardIndex].back_text
+                      : flashcards[currentCardIndex].front_text}
+                  </div>
+                </div>
+              </div>
+              <div className="flex justify-between items-center pt-2">
+                <button
+                  disabled={currentCardIndex === 0}
+                  onClick={() => { setCurrentCardIndex(c => Math.max(0, c - 1)); setIsFlipped(false); }}
+                  className="btn btn-outline text-xs py-1 px-3"
+                >
+                  Previous Card
+                </button>
+                <button
+                  disabled={currentCardIndex >= flashcards.length - 1}
+                  onClick={() => { setCurrentCardIndex(c => Math.min(flashcards.length - 1, c + 1)); setIsFlipped(false); }}
+                  className="btn btn-outline text-xs py-1 px-3"
+                >
+                  Next Card
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Interactive Self-Check Quiz Questions */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold text-[#23352d] uppercase tracking-wider">
+                Daily Knowledge Check Questions
+              </h3>
+              {quizSubmitted && (
+                <span className="text-xs font-extrabold text-[#1f5f3e] bg-[#e1f5ea] px-3 py-1 rounded-full border border-[#bce4cc]">
+                  Score: {
+                    [
+                      { id: 1, correct: 1 },
+                      { id: 2, correct: 0 },
+                      { id: 3, correct: 1 }
+                    ].filter(q => selectedQuizAnswers[q.id] === q.correct).length
+                  } / 3 Correct
+                </span>
+              )}
+            </div>
+
+            {[
+              {
+                id: 1,
+                question: 'What is the primary function of Python virtual environments (venv)?',
+                options: [
+                  'To speed up machine boot time',
+                  'To isolate project-specific dependencies and prevent version conflicts',
+                  'To automatically compile Python into C code',
+                  'To backup files to the cloud'
+                ],
+                correctIndex: 1,
+                explanation: 'Virtual environments allow each project to have its own isolated packages without conflicting with system libraries.'
+              },
+              {
+                id: 2,
+                question: 'Which CLI command confirms that Python is correctly installed and added to PATH?',
+                options: [
+                  'python --version (or python3 --version)',
+                  'python -start',
+                  'check-python',
+                  'python run --all'
+                ],
+                correctIndex: 0,
+                explanation: 'The --version flag reports the current active Python runtime version.'
+              },
+              {
+                id: 3,
+                question: 'When submitting your completed assignment file via Google Drive, what must the link permission be set to?',
+                options: [
+                  'Restricted (Only you can access)',
+                  'Anyone with the link can view',
+                  'Commenter only via email invite',
+                  'Private account access'
+                ],
+                correctIndex: 1,
+                explanation: 'Setting access to "Anyone with the link can view" allows faculty and evaluating staff to inspect your submission.'
+              }
+            ].map((q) => {
+              const selected = selectedQuizAnswers[q.id];
+              const isAnswered = selected !== undefined;
+              const isCorrect = isAnswered && selected === q.correctIndex;
+
+              return (
+                <div key={q.id} className="p-4 rounded-xl border border-[#dde5de] bg-[#fbfdfb] space-y-3">
+                  <div className="text-xs font-bold text-[#21352d] flex items-start gap-2">
+                    <span className="w-5 h-5 rounded-full bg-[#285d47] text-white flex items-center justify-center shrink-0 text-[10px]">
+                      {q.id}
+                    </span>
+                    <span>{q.question}</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                    {q.options.map((opt, optIdx) => {
+                      const isOptionSelected = selected === optIdx;
+                      let optionStyle = 'bg-white border-[#dce5de] text-[#33463e] hover:bg-[#f5f8f5]';
+                      if (quizSubmitted) {
+                        if (optIdx === q.correctIndex) {
+                          optionStyle = 'bg-[#e2f5ea] border-[#86efac] text-[#14532d] font-bold';
+                        } else if (isOptionSelected) {
+                          optionStyle = 'bg-[#faecea] border-[#fca5a5] text-[#7f1d1d] font-semibold';
+                        }
+                      } else if (isOptionSelected) {
+                        optionStyle = 'bg-[#eef5f1] border-[#255f46] text-[#255f46] font-bold shadow-xs';
+                      }
+
+                      return (
+                        <button
+                          key={optIdx}
+                          type="button"
+                          onClick={() => {
+                            if (!quizSubmitted) {
+                              setSelectedQuizAnswers(prev => ({ ...prev, [q.id]: optIdx }));
+                            }
+                          }}
+                          className={`p-3 rounded-lg border text-left text-xs transition flex items-center gap-2 ${optionStyle}`}
+                        >
+                          <span className="w-4 h-4 rounded-full border grid place-items-center shrink-0 text-[10px] font-bold">
+                            {String.fromCharCode(65 + optIdx)}
+                          </span>
+                          <span>{opt}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {quizSubmitted && (
+                    <div className={`p-2.5 rounded-lg text-xs ${isCorrect ? 'bg-[#f0fdf4] text-[#166534] border border-[#bbf7d0]' : 'bg-[#fff1f2] text-[#9f1239] border border-[#fecdd3]'}`}>
+                      <strong>{isCorrect ? '✓ Correct!' : '✗ Needs Review:'}</strong> {q.explanation}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            <div className="flex justify-between items-center pt-2">
+              {!quizSubmitted ? (
+                <button
+                  type="button"
+                  onClick={() => setQuizSubmitted(true)}
+                  disabled={Object.keys(selectedQuizAnswers).length < 3}
+                  className="btn btn-primary text-xs py-2 px-5 font-bold"
+                >
+                  Submit & Check Answers
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedQuizAnswers({});
+                    setQuizSubmitted(false);
+                  }}
+                  className="btn btn-outline text-xs py-1.5 px-4 font-bold"
+                >
+                  Retake Quiz
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="flex justify-between items-center pt-3 border-t border-[#edf1ee]">
+            <button
+              onClick={() => setActiveTab('video')}
+              className="btn btn-outline text-xs py-2 px-4 flex items-center gap-1.5 font-bold"
+            >
+              <ChevronLeft size={14} />
+              <span>Back: Main Class Video</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('assignment')}
+              className="btn btn-primary text-xs py-2 px-4 flex items-center gap-1.5 font-bold"
+            >
+              <span>Next: Assignment</span>
+              <ArrowRight size={14} />
+            </button>
+          </div>
         </div>
       )}
 
-      {/* SECTION 4: TASKS & CHECKLIST */}
-      {activeTab === 'tasks' && (
-        <div className="panel p-6 bg-white border border-[#e4ebe4] space-y-4 rounded-2xl">
-          <div className="border-b border-[#edf1ee] pb-3">
-            <h2 className="text-base font-bold text-[#23352e]">Section 4: Daily Tasks & Checklist</h2>
-            <p className="text-xs text-[#6e7e76]">
-              Check off tasks as you accomplish learning outcomes for today
-            </p>
+      {/* SECTION 4: ASSIGNMENT */}
+      {activeTab === 'assignment' && (
+        <div className="panel p-6 bg-white border border-[#e4ebe4] space-y-5 rounded-2xl">
+          <div className="border-b border-[#edf1ee] pb-3 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-bold text-[#23352e] flex items-center gap-2">
+                <CheckSquare size={18} className="text-[#255f46]" /> Section 4: Daily Assignment & Tasks
+              </h2>
+              <p className="text-xs text-[#6e7e76]">
+                Review practical exercises, checklist items, and assignment requirements
+              </p>
+            </div>
+            {day.assignment_url && (
+              <a
+                href={day.assignment_url}
+                target="_blank"
+                rel="noreferrer"
+                className="btn btn-primary text-xs py-2 px-4 flex items-center gap-1.5 font-bold shadow-xs"
+              >
+                <span>Open Assignment Brief</span>
+                <ExternalLink size={13} />
+              </a>
+            )}
           </div>
 
-          {(localChecklist.length === 0 && tasks.length === 0) ? (
-            <div className="p-8 text-center text-xs text-[#7d8e85] border border-dashed border-[#ccd9cf] rounded-2xl">
-              No specific checklist items configured for this day.
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {localChecklist.length > 0 && (
-                <div className="space-y-2">
-                  {localChecklist.map((item: any) => (
-                    <div
-                      key={item.id}
-                      onClick={() => handleToggleChecklist(item)}
-                      className={`p-3.5 rounded-xl border transition flex items-center justify-between gap-3 select-none ${
-                        isReviewer ? 'cursor-default' : 'cursor-pointer'
-                      } ${
-                        item.completed
-                          ? 'bg-[#f0f8f3] border-[#bce4cc] text-[#1c4b35]'
-                          : 'bg-white border-[#e0e7e1] text-[#2d3e36] hover:bg-[#fafbf9]'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="checkbox"
-                          checked={Boolean(item.completed)}
-                          onChange={() => handleToggleChecklist(item)}
-                          disabled={isReviewer}
-                          className="h-4 w-4 rounded text-[#285e48] border-[#a9bcae] cursor-pointer"
-                        />
-                        <div>
-                          <span className={`text-xs font-bold ${item.completed ? 'line-through text-[#6a8074]' : ''}`}>
-                            {item.title}
-                          </span>
-                          {item.description && (
-                            <p className="text-[11px] text-[#6b7b73] mt-0.5">{item.description}</p>
-                          )}
-                        </div>
-                      </div>
-
-                      {item.is_required && (
-                        <span className="text-[10px] font-bold text-[#a64033] bg-[#faecea] px-2 py-0.5 rounded border border-[#f5c3bd] shrink-0">
-                          Required
-                        </span>
-                      )}
-                    </div>
-                  ))}
+          {/* Assignment Brief Document Card if present */}
+          {day.assignment_url && (
+            <div className="p-4 rounded-xl border border-[#bce0cb] bg-[#f4faf6] flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-[#285d47] text-white flex items-center justify-center shrink-0">
+                  <FileText size={20} />
                 </div>
-              )}
+                <div>
+                  <h4 className="text-xs font-bold text-[#1f4e39]">Official Day {day.day_number} Assignment Document</h4>
+                  <p className="text-[11px] text-[#5e776a]">Download or inspect detailed instructions, requirements, and sample outputs</p>
+                </div>
+              </div>
+              <a
+                href={day.assignment_url}
+                target="_blank"
+                rel="noreferrer"
+                className="btn btn-primary text-xs py-2 px-4 shrink-0 font-bold"
+              >
+                Open Brief <ExternalLink size={12} className="inline ml-1" />
+              </a>
+            </div>
+          )}
 
-              {tasks.length > 0 && (
-                <div className="pt-3 border-t border-[#edf1ee] space-y-2">
-                  <h3 className="text-xs font-bold text-[#20342c] uppercase tracking-wider">
-                    Practical Tasks & Instructions
-                  </h3>
-                  {tasks.map((t: any) => (
-                    <div key={t.id} className="p-3.5 rounded-xl border border-[#dde5de] bg-[#f9fbf9]">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-bold text-[#1f4e39]">{t.title}</span>
-                        {t.is_required && (
-                          <span className="text-[10px] font-bold text-[#a64033] bg-[#faecea] px-2 py-0.5 rounded border border-[#f5c3bd]">
-                            Required
-                          </span>
+          {/* Checklist items */}
+          <div className="space-y-3">
+            <h3 className="text-xs font-bold text-[#20342c] uppercase tracking-wider flex items-center justify-between">
+              <span>Required Checklist Items</span>
+              <span className="text-[11px] text-[#527061] font-semibold">
+                {completedRequired}/{requiredChecklist.length} Completed
+              </span>
+            </h3>
+
+            {localChecklist.length === 0 ? (
+              <p className="text-xs text-[#718279] italic p-3 border border-dashed rounded-xl text-center">
+                Review Day 1 class video and study notes.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {localChecklist.map((item: any) => (
+                  <div
+                    key={item.id}
+                    onClick={() => handleToggleChecklist(item)}
+                    className={`p-3.5 rounded-xl border transition flex items-center justify-between gap-3 select-none ${
+                      isReviewer ? 'cursor-default' : 'cursor-pointer'
+                    } ${
+                      item.completed
+                        ? 'bg-[#f0f8f3] border-[#bce4cc] text-[#1c4b35]'
+                        : 'bg-white border-[#e0e7e1] text-[#2d3e36] hover:bg-[#fafbf9]'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(item.completed)}
+                        onChange={() => handleToggleChecklist(item)}
+                        disabled={isReviewer}
+                        className="h-4 w-4 rounded text-[#285e48] border-[#a9bcae] cursor-pointer"
+                      />
+                      <div>
+                        <span className={`text-xs font-bold ${item.completed ? 'line-through text-[#6a8074]' : ''}`}>
+                          {item.title}
+                        </span>
+                        {item.description && (
+                          <p className="text-[11px] text-[#6b7b73] mt-0.5">{item.description}</p>
                         )}
                       </div>
-                      {t.instructions && (
-                        <p className="text-xs text-[#5f7368] mt-1 whitespace-pre-wrap">{t.instructions}</p>
-                      )}
                     </div>
-                  ))}
+
+                    {item.is_required && (
+                      <span className="text-[10px] font-bold text-[#a64033] bg-[#faecea] px-2 py-0.5 rounded border border-[#f5c3bd] shrink-0">
+                        Required
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Practical Tasks if any */}
+          {tasks.length > 0 && (
+            <div className="pt-3 border-t border-[#edf1ee] space-y-2">
+              <h3 className="text-xs font-bold text-[#20342c] uppercase tracking-wider">
+                Practical Exercises & Tasks
+              </h3>
+              {tasks.map((t: any) => (
+                <div key={t.id} className="p-3.5 rounded-xl border border-[#dde5de] bg-[#f9fbf9]">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-[#1f4e39]">{t.title}</span>
+                    {t.is_required && (
+                      <span className="text-[10px] font-bold text-[#a64033] bg-[#faecea] px-2 py-0.5 rounded border border-[#f5c3bd]">
+                        Required
+                      </span>
+                    )}
+                  </div>
+                  {t.instructions && (
+                    <p className="text-xs text-[#5f7368] mt-1 whitespace-pre-wrap">{t.instructions}</p>
+                  )}
                 </div>
-              )}
+              ))}
             </div>
           )}
+
+          {/* Submission Guidance Callout Banner */}
+          <div className="rounded-xl border border-[#bce0cb] bg-[#f0fdf4] p-4 flex flex-wrap items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="text-xs font-bold text-[#14532d] flex items-center gap-1.5">
+                <ShieldCheck size={16} className="text-[#16a34a]" />
+                <span>Ready to Submit Your Word Document / Assignment Evidence?</span>
+              </div>
+              <p className="text-[11px] text-[#166534]">
+                Upload your completed work to Google Drive, configure access to "Anyone with the link can view", and submit the link in Section 5.
+              </p>
+            </div>
+            <button
+              onClick={() => setActiveTab('submission')}
+              className="btn btn-primary text-xs py-2 px-4 flex items-center gap-1.5 font-bold shadow-xs shrink-0"
+            >
+              <span>Go to Section 5: Submission</span>
+              <ArrowRight size={13} />
+            </button>
+          </div>
+
+          <div className="flex justify-between items-center pt-3 border-t border-[#edf1ee]">
+            <button
+              onClick={() => setActiveTab('quiz')}
+              className="btn btn-outline text-xs py-2 px-4 flex items-center gap-1.5 font-bold"
+            >
+              <ChevronLeft size={14} />
+              <span>Back: Quiz</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('submission')}
+              className="btn btn-primary text-xs py-2 px-4 flex items-center gap-1.5 font-bold"
+            >
+              <span>Next: Submission Drive Link</span>
+              <ArrowRight size={14} />
+            </button>
+          </div>
         </div>
       )}
 
-      {/* SECTION 5: SUBMISSION */}
+      {/* SECTION 5: SUBMISSION DRIVE LINK */}
       {activeTab === 'submission' && (
         <div className="space-y-6">
           {/* Section 5 Header with Rewards summary */}
@@ -636,10 +907,10 @@ export function DailyClassPage() {
             <div className="border-b border-[#edf1ee] pb-3 flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="text-base font-bold text-[#23352e] flex items-center gap-2">
-                  <ExternalLink size={18} className="text-[#255f46]" /> Section 5: Assignment Submission & Evidence
+                  <ExternalLink size={18} className="text-[#255f46]" /> Section 5: Submission Drive Link
                 </h2>
                 <p className="text-xs text-[#718079]">
-                  Upload Word document assignment evidence via Google Drive · Evaluated directly by assigned faculty
+                  Submit Google Drive link to completed assignment · Automatically completes day and unlocks Day 2
                 </p>
               </div>
 
@@ -710,6 +981,37 @@ export function DailyClassPage() {
                 <div className="text-[10px] text-[#427158] font-semibold">1 Reward Point = ₹1 INR</div>
               </div>
             </div>
+
+            {/* NEXT DAY UNLOCKED NOTIFICATION BANNER */}
+            {(day.is_completed || driveSubmitSuccess || (activeDrive && activeDrive.status)) && (
+              <div className="rounded-2xl border-2 border-[#86efac] bg-gradient-to-r from-[#ecfdf5] via-[#f0fdf4] to-[#e8f7ee] p-5 shadow-sm flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-[#16a34a] text-white flex items-center justify-center font-black text-lg shadow-xs">
+                    ✓
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold text-[#15803d] uppercase tracking-wider block">
+                      Day {day.day_number} Completed
+                    </span>
+                    <span className="text-sm font-extrabold text-[#14532d]">
+                      {day.next_day
+                        ? `Day ${day.next_day.day_number}: ${day.next_day.title} is now open and ready!`
+                        : 'You have completed all days in this course curriculum!'}
+                    </span>
+                  </div>
+                </div>
+
+                {day.next_day && (
+                  <Link
+                    href={`/learning-days/${day.next_day.id}${studentIdParam ? `?student_id=${studentIdParam}` : ''}`}
+                    className="btn btn-primary text-xs py-2.5 px-5 flex items-center gap-2 font-bold shadow-sm"
+                  >
+                    <span>Proceed to Day {day.next_day.day_number}</span>
+                    <ArrowRight size={15} />
+                  </Link>
+                )}
+              </div>
+            )}
 
             {/* PROMINENT FACULTY EVALUATION & FEEDBACK CARD (Visible when reviewed) */}
             {activeDrive && (activeDrive.status === 'approved' || activeDrive.rating || activeDrive.review_comments) && (

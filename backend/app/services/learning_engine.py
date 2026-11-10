@@ -51,24 +51,12 @@ def get_track_days_status(db: Session, enrollment: Enrollment, track: LearningTr
             # First day of the track is unlocked by default upon enrollment
             is_unlocked = True
         else:
-            if is_manually_unlocked and unlock_mode in ("manual", "both"):
+            if is_manually_unlocked:
                 is_unlocked = True
             elif prev_day_completed:
-                if unlock_mode == "manual":
-                    # strictly manual
-                    is_unlocked = is_manually_unlocked
-                else:
-                    # 'timer' or 'both'
-                    if prev_completion_time:
-                        auto_unlock_at = prev_completion_time + timedelta(hours=delay_hours)
-                        next_unlock_time = auto_unlock_at
-                        if now >= auto_unlock_at:
-                            is_unlocked = True
-                        else:
-                            is_unlocked = False
-                            remaining_seconds = max(0, int((auto_unlock_at - now).total_seconds()))
-                    else:
-                        is_unlocked = True
+                # When previous day is completed, the next day opens immediately without 24-hour delay
+                is_unlocked = True
+                remaining_seconds = 0
             else:
                 is_unlocked = False
 
@@ -212,11 +200,6 @@ def evaluate_day_completion(db: Session, enrollment: Enrollment, day: LearningDa
 
         if not latest_drive:
             pending_reasons.append("Google Drive submission link required")
-        elif day.require_approval or ("approval" in custom_reqs):
-            if latest_drive.status != "approved":
-                pending_reasons.append(f"Google Drive submission is '{latest_drive.status}' (teacher approval required)")
-        elif latest_drive.status == "changes_requested":
-            pending_reasons.append("Google Drive submission revision requested")
         elif latest_drive.status == "rejected":
             pending_reasons.append("Google Drive submission was rejected; new submission required")
 
