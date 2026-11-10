@@ -116,12 +116,6 @@ export function DailyClassPage() {
     onSuccess: invalidateAll
   });
 
-  if (isLoading) return <LoadingState label="Loading daily curriculum and learning session" />;
-  if (isError || !day) return <ErrorState retry={() => refetch()} />;
-
-  const checklist = day.checklist || [];
-  const tasks = day.tasks || [];
-
   useEffect(() => {
     if (day?.checklist) {
       setLocalChecklist(day.checklist);
@@ -142,6 +136,12 @@ export function DailyClassPage() {
       }
     );
   };
+
+  if (isLoading) return <LoadingState label="Loading daily curriculum and learning session" />;
+  if (isError || !day) return <ErrorState retry={() => refetch()} />;
+
+  const checklist = day.checklist || [];
+  const tasks = day.tasks || [];
   const resources = day.resources || [];
   const flashcards = day.flashcards || [];
   const latestDrive = day.google_drive_submission;
