@@ -45,16 +45,19 @@ export function DailyClassPage() {
   const [reviewComments, setReviewComments] = useState<string>('');
   const [improvementTips, setImprovementTips] = useState<string>('');
   const [reviewSuccess, setReviewSuccess] = useState(false);
+  const [optimisticDrive, setOptimisticDrive] = useState<any>(null);
 
   const { data: currentUser } = useQuery({
     queryKey: ['current_user'],
-    queryFn: authApi.me
+    queryFn: authApi.me,
+    staleTime: 60000
   });
 
   const { data: day, isLoading, isError, refetch } = useQuery({
     queryKey: ['student_day', id, studentIdParam],
     queryFn: () => studentApi.getDayDetails(id, studentIdParam),
-    enabled: !!id
+    enabled: !!id,
+    staleTime: 30000
   });
 
   const isReviewer = currentUser && (currentUser.role === 'admin' || currentUser.role === 'employee');
@@ -70,20 +73,33 @@ export function DailyClassPage() {
   const toggleChecklistMutation = useMutation({
     mutationFn: ({ itemId, completed }: { itemId: string; completed: boolean }) =>
       studentApi.toggleChecklist(itemId, completed),
-    onSuccess: invalidateAll
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['student_day', id, studentIdParam] });
+    }
   });
 
   const updateActivityMutation = useMutation({
     mutationFn: ({ activity, value }: { activity: string; value: boolean }) =>
       studentApi.updateActivityProgress(id, activity, value),
-    onSuccess: invalidateAll
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['student_day', id, studentIdParam] });
+    }
   });
 
   const submitDriveMutation = useMutation({
     mutationFn: (data: { googleDriveUrl: string; notes?: string }) =>
       studentApi.submitGoogleDrive(id, data.googleDriveUrl, data.notes),
-    onSuccess: () => {
-      invalidateAll();
+    onSuccess: (res: any) => {
+      setOptimisticDrive(res);
+      queryClient.setQueryData(['student_day', id, studentIdParam], (old: any) => {
+        if (!old) return old;
+        return {
+          ...old,
+          google_drive_submission: res
+        };
+      });
+      queryClient.invalidateQueries({ queryKey: ['student_day', id, studentIdParam] });
+      queryClient.invalidateQueries({ queryKey: ['student_program_progress'] });
       setDriveSubmitSuccess(true);
       setDriveUrl('');
       setDriveNotes('');
@@ -91,6 +107,7 @@ export function DailyClassPage() {
       setTimeout(() => setDriveSubmitSuccess(false), 5000);
     },
     onError: (err: any) => {
+      setOptimisticDrive(null);
       setDriveUrlError(err.message || 'Failed to submit Google Drive assignment.');
     }
   });
@@ -145,6 +162,7 @@ export function DailyClassPage() {
   const resources = day.resources || [];
   const flashcards = day.flashcards || [];
   const latestDrive = day.google_drive_submission;
+  const activeDrive = optimisticDrive || latestDrive;
   const driveHistory = day.google_drive_history || [];
   const activity = day.activity_progress || {};
 
@@ -163,6 +181,20 @@ export function DailyClassPage() {
     if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
       trimmed = `https://${trimmed}`;
     }
+
+    // Instantly update UI optimistically with zero lag
+    const optimistic = {
+      id: 'opt-' + Date.now(),
+      google_drive_url: trimmed,
+      drive_url: trimmed,
+      notes: driveNotes.trim(),
+      status: 'submitted',
+      attempt_number: (latestDrive?.attempt_number || 0) + 1,
+      submitted_at: new Date().toISOString()
+    };
+    setOptimisticDrive(optimistic);
+    setDriveUrl('');
+    setDriveNotes('');
     submitDriveMutation.mutate({ googleDriveUrl: trimmed, notes: driveNotes.trim() });
   };
 
@@ -666,15 +698,15 @@ export function DailyClassPage() {
             </div>
 
             {/* CURRENT ACTIVE SUBMISSION CARD (Visible to student) */}
-            {latestDrive && (
+            {activeDrive && (
               <div className="rounded-xl border border-[#bce4cc] bg-[#f0f8f3] p-4 space-y-2.5">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div className="flex items-center gap-2 text-xs font-bold text-[#1f5f3e]">
                     <CheckCircle2 size={16} className="text-[#059669]" />
-                    <span>Active Submission (Attempt #{latestDrive.attempt_number})</span>
+                    <span>Active Submission (Attempt #{activeDrive.attempt_number || 1})</span>
                   </div>
                   <span className="text-[10px] text-[#527061] font-semibold">
-                    Submitted: {new Date(latestDrive.submitted_at).toLocaleString()}
+                    Submitted: {activeDrive.submitted_at ? new Date(activeDrive.submitted_at).toLocaleString() : 'Just now'}
                   </span>
                 </div>
 
@@ -682,17 +714,17 @@ export function DailyClassPage() {
                   <div className="min-w-0 flex-1">
                     <span className="text-[10px] uppercase font-bold text-[#62776c] block">Submitted Google Drive Link</span>
                     <a
-                      href={latestDrive.google_drive_url}
+                      href={activeDrive.google_drive_url || activeDrive.drive_url}
                       target="_blank"
                       rel="noreferrer"
                       className="text-xs font-bold text-[#1b5f3d] hover:underline flex items-center gap-1.5 truncate"
                     >
                       <ExternalLink size={13} className="shrink-0" />
-                      <span className="truncate">{latestDrive.google_drive_url}</span>
+                      <span className="truncate">{activeDrive.google_drive_url || activeDrive.drive_url}</span>
                     </a>
                   </div>
                   <a
-                    href={latestDrive.google_drive_url}
+                    href={activeDrive.google_drive_url || activeDrive.drive_url}
                     target="_blank"
                     rel="noreferrer"
                     className="btn btn-outline text-xs py-1 px-3 shrink-0"
@@ -701,9 +733,9 @@ export function DailyClassPage() {
                   </a>
                 </div>
 
-                {latestDrive.notes && (
+                {activeDrive.notes && (
                   <p className="text-xs text-[#4b6055] bg-white/70 p-2 rounded-lg border border-[#d6e5dc]">
-                    <strong className="text-[#2d4439]">Your Notes:</strong> {latestDrive.notes}
+                    <strong className="text-[#2d4439]">Your Notes:</strong> {activeDrive.notes}
                   </p>
                 )}
               </div>
@@ -714,7 +746,7 @@ export function DailyClassPage() {
               <form onSubmit={validateAndSubmitDrive} className="space-y-3.5 pt-2 border-t border-[#edf1ee]">
                 <div>
                   <label className="mb-1 block text-xs font-semibold text-[#485850]">
-                    {latestDrive ? 'Update / Resubmit Google Drive Link *' : 'Google Drive Link (Word Document / Evidence URL) *'}
+                    {activeDrive ? 'Update / Resubmit Google Drive Link *' : 'Google Drive Link (Word Document / Evidence URL) *'}
                   </label>
                   <input
                     type="text"
@@ -760,7 +792,7 @@ export function DailyClassPage() {
                     disabled={submitDriveMutation.isPending || !driveUrl.trim()}
                     className="btn btn-primary text-xs py-2 px-5 flex items-center gap-1.5"
                   >
-                    <Send size={13} /> {submitDriveMutation.isPending ? 'Submitting…' : latestDrive ? 'Update / Resubmit Link' : 'Submit Day Assignment'}
+                    <Send size={13} /> {submitDriveMutation.isPending ? 'Submitting…' : activeDrive ? 'Update / Resubmit Link' : 'Submit Day Assignment'}
                   </button>
                 </div>
               </form>

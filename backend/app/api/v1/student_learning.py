@@ -308,6 +308,7 @@ def get_student_day_details(
     drive_history = [{
         "id": s.id,
         "google_drive_url": s.google_drive_url,
+        "drive_url": s.google_drive_url,
         "notes": s.notes,
         "attempt_number": s.attempt_number,
         "status": s.status,
@@ -371,6 +372,7 @@ def get_student_day_details(
         "google_drive_submission": {
             "id": latest_drive.id,
             "google_drive_url": latest_drive.google_drive_url,
+            "drive_url": latest_drive.google_drive_url,
             "notes": latest_drive.notes,
             "attempt_number": latest_drive.attempt_number,
             "status": latest_drive.status,

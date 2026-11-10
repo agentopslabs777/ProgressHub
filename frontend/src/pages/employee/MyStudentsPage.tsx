@@ -25,7 +25,8 @@ export function MyStudentsPage() {
   // 1. Fetch only students assigned to this employee
   const { data: enrollments = [], isLoading, isError, refetch } = useQuery({
     queryKey: ['my_assigned_enrollments'],
-    queryFn: enrollmentsApi.list
+    queryFn: enrollmentsApi.list,
+    staleTime: 30000
   });
 
   // Filter enrollments by search
@@ -49,7 +50,8 @@ export function MyStudentsPage() {
       if (!currentEnrollment?.programId || !currentEnrollment?.studentId) return Promise.resolve([]);
       return studentApi.getProgramProgress(currentEnrollment.programId, currentEnrollment.studentId);
     },
-    enabled: !!currentEnrollment?.programId && !!currentEnrollment?.studentId
+    enabled: !!currentEnrollment?.programId && !!currentEnrollment?.studentId,
+    staleTime: 30000
   });
 
   // Collect all days across tracks for quick day selection
@@ -71,20 +73,41 @@ export function MyStudentsPage() {
       if (!activeDay?.id || !currentEnrollment?.studentId) return Promise.resolve(null);
       return studentApi.getDayDetails(activeDay.id, currentEnrollment.studentId);
     },
-    enabled: !!activeDay?.id && !!currentEnrollment?.studentId
+    enabled: !!activeDay?.id && !!currentEnrollment?.studentId,
+    staleTime: 15000
   });
+
+  // Sync initial review form values when dayDetail changes
+  React.useEffect(() => {
+    const sub = dayDetail?.google_drive_submission;
+    if (sub) {
+      if (sub.status && ['approved', 'changes_requested', 'rejected'].includes(sub.status)) {
+        setReviewStatus(sub.status);
+      } else {
+        setReviewStatus('approved');
+      }
+      if (sub.rating) setReviewScore(sub.rating);
+      if (typeof sub.additional_reward_points === 'number' && sub.additional_reward_points > 0) {
+        setAdditionalPoints(sub.additional_reward_points);
+      } else {
+        setAdditionalPoints(30);
+      }
+      if (sub.review_comments) setReviewComments(sub.review_comments);
+    }
+  }, [dayDetail?.google_drive_submission?.id]);
 
   // 4. Review mutation for Google Drive submission
   const reviewMutation = useMutation({
     mutationFn: ({ submissionId, data }: { submissionId: string; data: any }) =>
       submissionsApi.reviewGoogleDrive(submissionId, data),
-    onSuccess: () => {
-      setReviewSuccessMsg('Evaluation and reward points saved successfully!');
+    onSuccess: (res: any) => {
+      const extra = res?.additional_reward_points ? ` (+${res.additional_reward_points} pts added to student wallet)` : '';
+      setReviewSuccessMsg(`Evaluation and score saved successfully!${extra}`);
       setReviewErrorMsg('');
-      queryClient.invalidateQueries({ queryKey: ['employee_student_day_detail'] });
+      queryClient.invalidateQueries({ queryKey: ['employee_student_day_detail', activeDay?.id, currentEnrollment?.studentId] });
       queryClient.invalidateQueries({ queryKey: ['employee_student_progress'] });
       queryClient.invalidateQueries({ queryKey: ['my_assigned_enrollments'] });
-      setTimeout(() => setReviewSuccessMsg(''), 4000);
+      setTimeout(() => setReviewSuccessMsg(''), 5000);
     },
     onError: (err: any) => {
       setReviewErrorMsg(err.message || 'Failed to submit review');
@@ -98,13 +121,16 @@ export function MyStudentsPage() {
       return;
     }
 
+    setReviewErrorMsg('');
+    setReviewSuccessMsg('Submitting evaluation and updating student points wallet...');
+
     reviewMutation.mutate({
       submissionId: dayDetail.google_drive_submission.id,
       data: {
         status: reviewStatus,
         rating: Number(reviewScore),
         additional_reward_points: Number(additionalPoints),
-        review_comments: reviewComments.trim() || 'Reviewed by assigned supporting teacher.'
+        review_comments: reviewComments.trim() || 'Reviewed and approved by supporting teacher.'
       }
     });
   };
@@ -212,20 +238,23 @@ export function MyStudentsPage() {
             {currentEnrollment ? (
               <>
                 {/* Active Student & Assigned Course Banner */}
-                <div className="panel p-5 bg-gradient-to-r from-[#1b4334] to-[#255e49] text-white rounded-2xl shadow-sm space-y-3">
+                <div
+                  className="p-5 text-white rounded-2xl shadow-md space-y-3 border border-[#133d2c]"
+                  style={{ background: 'linear-gradient(135deg, #144231 0%, #1a4f3c 50%, #25634b 100%)', color: '#ffffff' }}
+                >
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 rounded-full bg-white/20 text-white font-black text-sm flex items-center justify-center border border-white/30 shadow-inner">
+                      <div className="w-12 h-12 rounded-full bg-[#0e3022] text-white font-black text-sm flex items-center justify-center border-2 border-white/40 shadow-inner">
                         {(currentEnrollment.studentName || 'ST').slice(0, 2).toUpperCase()}
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
-                          <h3 className="text-base font-extrabold text-white">{currentEnrollment.studentName}</h3>
-                          <span className="text-[10px] font-bold uppercase tracking-wider bg-white/20 text-[#a3f0ca] px-2 py-0.5 rounded-full border border-white/20">
+                          <h3 className="text-base font-extrabold text-white tracking-tight">{currentEnrollment.studentName}</h3>
+                          <span className="text-[10px] font-bold uppercase tracking-wider bg-white/20 text-[#a3f0ca] px-2.5 py-0.5 rounded-full border border-white/30 backdrop-blur-xs">
                             Assigned to You
                           </span>
                         </div>
-                        <p className="text-xs text-[#d1eee0]">{currentEnrollment.studentEmail}</p>
+                        <p className="text-xs text-[#d1eee0] font-medium">{currentEnrollment.studentEmail}</p>
                       </div>
                     </div>
 
@@ -233,10 +262,10 @@ export function MyStudentsPage() {
                       <span className="text-[10px] uppercase font-bold tracking-wider text-[#b1dfcb] block">
                         Assigned Course
                       </span>
-                      <span className="text-sm font-extrabold text-white">
+                      <span className="text-sm font-extrabold text-white block">
                         {currentEnrollment.programName} ({currentEnrollment.programCode})
                       </span>
-                      <div className="text-xs font-bold text-[#a4f0cb] mt-0.5">
+                      <div className="inline-block text-xs font-bold text-white bg-[#0e3022] px-2.5 py-0.5 rounded-md mt-1 border border-white/20">
                         {currentEnrollment.progress}% Completed
                       </div>
                     </div>
@@ -413,40 +442,58 @@ export function MyStudentsPage() {
                         </div>
 
                         {/* Submission Link Box */}
-                        {dayDetail?.google_drive_submission?.drive_url ? (
-                          <div className="p-3.5 bg-white rounded-xl border border-[#b2d5c3] shadow-xs flex flex-wrap items-center justify-between gap-3">
-                            <div className="space-y-1">
-                              <span className="text-[10px] font-bold uppercase tracking-wider text-[#6b7e74] block">
-                                Student Uploaded Document Link:
-                              </span>
-                              <a
-                                href={dayDetail.google_drive_submission.drive_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="font-bold text-xs text-[#20573e] hover:underline flex items-center gap-1.5 break-all"
-                              >
-                                {dayDetail.google_drive_submission.drive_url}
-                                <ExternalLink size={13} className="shrink-0" />
-                              </a>
-                              <span className="text-[11px] text-[#697d72] block">
-                                Submitted on: {dayDetail.google_drive_submission.submitted_at ? new Date(dayDetail.google_drive_submission.submitted_at).toLocaleString() : 'Recently'}
-                              </span>
-                            </div>
+                        {(() => {
+                          const driveUrl = dayDetail?.google_drive_submission?.google_drive_url || dayDetail?.google_drive_submission?.drive_url;
+                          if (driveUrl) {
+                            return (
+                              <div className="p-4 bg-white rounded-xl border border-[#b2d5c3] shadow-xs flex flex-wrap items-center justify-between gap-4">
+                                <div className="space-y-1.5 max-w-xl">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#436353] bg-[#eaf4ef] px-2 py-0.5 rounded">
+                                      Student Uploaded Evidence Link
+                                    </span>
+                                    {dayDetail.google_drive_submission.attempt_number && (
+                                      <span className="text-[10px] font-bold text-[#235841]">
+                                        Attempt #{dayDetail.google_drive_submission.attempt_number}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <a
+                                    href={driveUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="font-bold text-xs text-[#1e583e] hover:underline flex items-center gap-1.5 break-all"
+                                  >
+                                    <span className="truncate max-w-lg">{driveUrl}</span>
+                                    <ExternalLink size={13} className="shrink-0 text-[#2b6d4e]" />
+                                  </a>
+                                  {dayDetail.google_drive_submission.notes && (
+                                    <p className="text-xs text-[#526a5d] bg-[#f8faf8] p-2 rounded-lg border border-[#e3ebe4]">
+                                      <strong className="text-[#2c4c3d]">Student Note:</strong> {dayDetail.google_drive_submission.notes}
+                                    </p>
+                                  )}
+                                  <span className="text-[11px] text-[#697d72] block">
+                                    Submitted on: {dayDetail.google_drive_submission.submitted_at ? new Date(dayDetail.google_drive_submission.submitted_at).toLocaleString() : 'Recently'}
+                                  </span>
+                                </div>
 
-                            <a
-                              href={dayDetail.google_drive_submission.drive_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="btn btn-primary text-xs py-2 px-4 shadow-sm flex items-center gap-1.5"
-                            >
-                              <ExternalLink size={14} /> Open Document in Google Drive
-                            </a>
-                          </div>
-                        ) : (
-                          <div className="p-4 bg-white rounded-xl border border-dashed border-[#ccd9cf] text-center text-xs text-[#718279]">
-                            The student has not yet submitted a Google Drive URL for Day {activeDay.day_number || activeDay.dayNumber}.
-                          </div>
-                        )}
+                                <a
+                                  href={driveUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="btn btn-primary text-xs py-2.5 px-4 shadow-sm flex items-center gap-1.5 font-bold"
+                                >
+                                  <ExternalLink size={14} /> Open Document in Google Drive
+                                </a>
+                              </div>
+                            );
+                          }
+                          return (
+                            <div className="p-4 bg-white rounded-xl border border-dashed border-[#ccd9cf] text-center text-xs text-[#718279]">
+                              The student has not yet submitted a Google Drive URL for Day {activeDay.day_number || activeDay.dayNumber}.
+                            </div>
+                          );
+                        })()}
 
                         {/* Teacher Direct Review & Award Points Form */}
                         {dayDetail?.google_drive_submission && (

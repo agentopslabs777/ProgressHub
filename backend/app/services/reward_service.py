@@ -45,17 +45,20 @@ def credit_reward_points(
     reason: str,
     related_entity_type: Optional[str] = None,
     related_entity_id: Optional[str] = None,
-    created_by_id: Optional[str] = None
+    created_by_id: Optional[str] = None,
+    commit: bool = True,
+    allow_multiple: bool = False
 ) -> RewardTransaction:
     """
     Credits reward points to a student's wallet and records an immutable ledger transaction.
-    Prevents duplicate credits for the same qualifying event if related_entity_type and id are provided.
+    Prevents duplicate credits for the same qualifying event if related_entity_type and id are provided,
+    unless allow_multiple is explicitly True.
     """
     if points <= 0:
         raise ValueError("Points to credit must be positive.")
 
-    # Deduplication check
-    if related_entity_type and related_entity_id:
+    # Deduplication check (unless explicitly allowing multiple awards)
+    if not allow_multiple and related_entity_type and related_entity_id:
         existing = db.query(RewardTransaction).filter(
             RewardTransaction.user_id == user_id,
             RewardTransaction.transaction_type == transaction_type,
@@ -85,8 +88,8 @@ def credit_reward_points(
     )
     db.add(tx)
 
-    wallet.balance += points
-    wallet.total_earned += points
+    wallet.balance = float(wallet.balance or 0.0) + float(points)
+    wallet.total_earned = float(wallet.total_earned or 0.0) + float(points)
     wallet.updated_at = datetime.utcnow()
 
     # Create notification for student
@@ -98,8 +101,11 @@ def credit_reward_points(
     )
     db.add(notif)
 
-    db.commit()
-    db.refresh(tx)
+    if commit:
+        db.commit()
+        db.refresh(tx)
+    else:
+        db.flush()
     return tx
 
 def debit_reward_points(
