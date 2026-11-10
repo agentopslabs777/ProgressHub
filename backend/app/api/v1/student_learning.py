@@ -327,6 +327,14 @@ def get_student_day_details(
         DayProgress.day_id == day.id
     ).first()
 
+    # Automatically evaluate day completion if not already marked completed
+    if not progress or not progress.is_completed:
+        check_and_update_day_progress(db, enrollment, day, current_user)
+        progress = db.query(DayProgress).filter(
+            DayProgress.enrollment_id == enrollment.id,
+            DayProgress.day_id == day.id
+        ).first()
+
     _, pending_reasons = evaluate_day_completion(db, enrollment, day)
 
     target_user = db.query(User).filter(User.id == target_student_id).first()

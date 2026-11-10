@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'wouter';
 import {
@@ -28,6 +28,9 @@ export function DailyClassPage() {
   // Flashcard flipper state (under Learning Resources)
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
+
+  // Optimistic local state for checklist items
+  const [localChecklist, setLocalChecklist] = useState<any[]>([]);
 
   // Student Google Drive submission state
   const [driveUrl, setDriveUrl] = useState('');
@@ -118,6 +121,27 @@ export function DailyClassPage() {
 
   const checklist = day.checklist || [];
   const tasks = day.tasks || [];
+
+  useEffect(() => {
+    if (day?.checklist) {
+      setLocalChecklist(day.checklist);
+    }
+  }, [day?.checklist]);
+
+  const handleToggleChecklist = (item: any) => {
+    if (isReviewer) return;
+    const newCompleted = !item.completed;
+    setLocalChecklist(prev => prev.map(it => it.id === item.id ? { ...it, completed: newCompleted } : it));
+    toggleChecklistMutation.mutate(
+      { itemId: item.id, completed: newCompleted },
+      {
+        onError: (err: any) => {
+          setLocalChecklist(prev => prev.map(it => it.id === item.id ? { ...it, completed: !newCompleted } : it));
+          alert(err?.message || 'Failed to update checklist item');
+        }
+      }
+    );
+  };
   const resources = day.resources || [];
   const flashcards = day.flashcards || [];
   const latestDrive = day.google_drive_submission;
@@ -131,14 +155,13 @@ export function DailyClassPage() {
   const validateAndSubmitDrive = (e: React.FormEvent) => {
     e.preventDefault();
     setDriveUrlError('');
-    const trimmed = driveUrl.trim();
+    let trimmed = driveUrl.trim();
     if (!trimmed) {
       setDriveUrlError('Please enter your Google Drive or document evidence URL.');
       return;
     }
     if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
-      setDriveUrlError('URL must start with http:// or https://');
-      return;
+      trimmed = `https://${trimmed}`;
     }
     submitDriveMutation.mutate({ googleDriveUrl: trimmed, notes: driveNotes.trim() });
   };
@@ -490,49 +513,76 @@ export function DailyClassPage() {
             </p>
           </div>
 
-          {checklist.length === 0 ? (
+          {(localChecklist.length === 0 && tasks.length === 0) ? (
             <div className="p-8 text-center text-xs text-[#7d8e85] border border-dashed border-[#ccd9cf] rounded-2xl">
               No specific checklist items configured for this day.
             </div>
           ) : (
-            <div className="space-y-2">
-              {checklist.map((item: any) => (
-                <div
-                  key={item.id}
-                  onClick={() => !isReviewer && toggleChecklistMutation.mutate({ itemId: item.id, completed: !item.completed })}
-                  className={`p-3.5 rounded-xl border transition flex items-center justify-between gap-3 ${
-                    isReviewer ? 'cursor-default' : 'cursor-pointer'
-                  } ${
-                    item.completed
-                      ? 'bg-[#f0f8f3] border-[#bce4cc] text-[#1c4b35]'
-                      : 'bg-white border-[#e0e7e1] text-[#2d3e36] hover:bg-[#fafbf9]'
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      checked={item.completed}
-                      readOnly
-                      disabled={isReviewer}
-                      className="h-4 w-4 rounded text-[#285e48] border-[#a9bcae]"
-                    />
-                    <div>
-                      <span className={`text-xs font-bold ${item.completed ? 'line-through text-[#6a8074]' : ''}`}>
-                        {item.title}
-                      </span>
-                      {item.description && (
-                        <p className="text-[11px] text-[#6b7b73] mt-0.5">{item.description}</p>
+            <div className="space-y-4">
+              {localChecklist.length > 0 && (
+                <div className="space-y-2">
+                  {localChecklist.map((item: any) => (
+                    <div
+                      key={item.id}
+                      onClick={() => handleToggleChecklist(item)}
+                      className={`p-3.5 rounded-xl border transition flex items-center justify-between gap-3 select-none ${
+                        isReviewer ? 'cursor-default' : 'cursor-pointer'
+                      } ${
+                        item.completed
+                          ? 'bg-[#f0f8f3] border-[#bce4cc] text-[#1c4b35]'
+                          : 'bg-white border-[#e0e7e1] text-[#2d3e36] hover:bg-[#fafbf9]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(item.completed)}
+                          onChange={() => handleToggleChecklist(item)}
+                          disabled={isReviewer}
+                          className="h-4 w-4 rounded text-[#285e48] border-[#a9bcae] cursor-pointer"
+                        />
+                        <div>
+                          <span className={`text-xs font-bold ${item.completed ? 'line-through text-[#6a8074]' : ''}`}>
+                            {item.title}
+                          </span>
+                          {item.description && (
+                            <p className="text-[11px] text-[#6b7b73] mt-0.5">{item.description}</p>
+                          )}
+                        </div>
+                      </div>
+
+                      {item.is_required && (
+                        <span className="text-[10px] font-bold text-[#a64033] bg-[#faecea] px-2 py-0.5 rounded border border-[#f5c3bd] shrink-0">
+                          Required
+                        </span>
                       )}
                     </div>
-                  </div>
-
-                  {item.is_required && (
-                    <span className="text-[10px] font-bold text-[#a64033] bg-[#faecea] px-2 py-0.5 rounded border border-[#f5c3bd] shrink-0">
-                      Required
-                    </span>
-                  )}
+                  ))}
                 </div>
-              ))}
+              )}
+
+              {tasks.length > 0 && (
+                <div className="pt-3 border-t border-[#edf1ee] space-y-2">
+                  <h3 className="text-xs font-bold text-[#20342c] uppercase tracking-wider">
+                    Practical Tasks & Instructions
+                  </h3>
+                  {tasks.map((t: any) => (
+                    <div key={t.id} className="p-3.5 rounded-xl border border-[#dde5de] bg-[#f9fbf9]">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-bold text-[#1f4e39]">{t.title}</span>
+                        {t.is_required && (
+                          <span className="text-[10px] font-bold text-[#a64033] bg-[#faecea] px-2 py-0.5 rounded border border-[#f5c3bd]">
+                            Required
+                          </span>
+                        )}
+                      </div>
+                      {t.instructions && (
+                        <p className="text-xs text-[#5f7368] mt-1 whitespace-pre-wrap">{t.instructions}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -615,17 +665,61 @@ export function DailyClassPage() {
               </div>
             </div>
 
-            {/* STUDENT SUBMISSION FORM (When viewed by student) */}
+            {/* CURRENT ACTIVE SUBMISSION CARD (Visible to student) */}
+            {latestDrive && (
+              <div className="rounded-xl border border-[#bce4cc] bg-[#f0f8f3] p-4 space-y-2.5">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 text-xs font-bold text-[#1f5f3e]">
+                    <CheckCircle2 size={16} className="text-[#059669]" />
+                    <span>Active Submission (Attempt #{latestDrive.attempt_number})</span>
+                  </div>
+                  <span className="text-[10px] text-[#527061] font-semibold">
+                    Submitted: {new Date(latestDrive.submitted_at).toLocaleString()}
+                  </span>
+                </div>
+
+                <div className="p-3 bg-white rounded-lg border border-[#cbe1d3] flex items-center justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <span className="text-[10px] uppercase font-bold text-[#62776c] block">Submitted Google Drive Link</span>
+                    <a
+                      href={latestDrive.google_drive_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs font-bold text-[#1b5f3d] hover:underline flex items-center gap-1.5 truncate"
+                    >
+                      <ExternalLink size={13} className="shrink-0" />
+                      <span className="truncate">{latestDrive.google_drive_url}</span>
+                    </a>
+                  </div>
+                  <a
+                    href={latestDrive.google_drive_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn btn-outline text-xs py-1 px-3 shrink-0"
+                  >
+                    Open Link
+                  </a>
+                </div>
+
+                {latestDrive.notes && (
+                  <p className="text-xs text-[#4b6055] bg-white/70 p-2 rounded-lg border border-[#d6e5dc]">
+                    <strong className="text-[#2d4439]">Your Notes:</strong> {latestDrive.notes}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* STUDENT SUBMISSION / RESUBMISSION FORM */}
             {(!isReviewer || !studentIdParam) && (
               <form onSubmit={validateAndSubmitDrive} className="space-y-3.5 pt-2 border-t border-[#edf1ee]">
                 <div>
                   <label className="mb-1 block text-xs font-semibold text-[#485850]">
-                    Google Drive Link (Word Document / Evidence URL) *
+                    {latestDrive ? 'Update / Resubmit Google Drive Link *' : 'Google Drive Link (Word Document / Evidence URL) *'}
                   </label>
                   <input
-                    type="url"
+                    type="text"
                     required
-                    placeholder="https://drive.google.com/file/d/... or docs.google.com/document/..."
+                    placeholder="https://drive.google.com/file/d/... or docs.google.com/..."
                     value={driveUrl}
                     onChange={(e) => setDriveUrl(e.target.value)}
                     className="field text-xs py-2"
@@ -666,7 +760,7 @@ export function DailyClassPage() {
                     disabled={submitDriveMutation.isPending || !driveUrl.trim()}
                     className="btn btn-primary text-xs py-2 px-5 flex items-center gap-1.5"
                   >
-                    <Send size={13} /> {submitDriveMutation.isPending ? 'Submitting…' : 'Submit Day Assignment'}
+                    <Send size={13} /> {submitDriveMutation.isPending ? 'Submitting…' : latestDrive ? 'Update / Resubmit Link' : 'Submit Day Assignment'}
                   </button>
                 </div>
               </form>

@@ -28,8 +28,10 @@ def validate_google_drive_url(url: str) -> bool:
     if not url:
         return False
     clean_url = url.strip()
-    pattern = r"^https?:\/\/(drive|docs)\.google\.com\/[^\s]+$"
-    return bool(re.match(pattern, clean_url, re.IGNORECASE))
+    if not clean_url.startswith("http://") and not clean_url.startswith("https://"):
+        clean_url = f"https://{clean_url}"
+    pattern = r"^https?:\/\/(?:[a-zA-Z0-9-]+\.)*(google\.com|drive\.google\.com|docs\.google\.com)\/[^\s]+$"
+    return bool(re.match(pattern, clean_url, re.IGNORECASE)) or bool(re.match(r"^https?:\/\/[^\s]+$", clean_url))
 
 @router.post("/google-drive", response_model=dict)
 def submit_google_drive_evidence(
@@ -40,7 +42,11 @@ def submit_google_drive_evidence(
     if current_user.role != "student":
         raise HTTPException(status_code=403, detail="Only students can submit assignments")
 
-    clean_url = data.google_drive_url.strip()
+    raw_url = data.google_drive_url.strip()
+    if not raw_url.startswith("http://") and not raw_url.startswith("https://"):
+        raw_url = f"https://{raw_url}"
+    clean_url = raw_url
+
     if not validate_google_drive_url(clean_url):
         raise HTTPException(
             status_code=400,

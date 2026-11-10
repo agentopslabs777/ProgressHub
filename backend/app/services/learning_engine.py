@@ -184,7 +184,7 @@ def evaluate_day_completion(db: Session, enrollment: Enrollment, day: LearningDa
 
     # 2. Task Submission Requirements
     tasks = db.query(DailyTask).filter(DailyTask.day_id == day.id).all()
-    has_required_task = day.require_task_submission or ("task" in custom_reqs) or any(t.is_required for t in tasks)
+    has_required_task = bool(day.require_task_submission or ("task" in custom_reqs))
 
     if has_required_task and tasks:
         task_ids = [t.id for t in tasks if t.is_required or day.require_task_submission]
