@@ -486,14 +486,14 @@ def get_student_day_details(
         } if latest_drive else None,
         "google_drive_history": drive_history,
         "activity_progress": {
-            "summary_viewed": progress.summary_viewed if progress else False,
-            "telugu_summary_viewed": progress.telugu_summary_viewed if progress else False,
-            "english_summary_viewed": progress.english_summary_viewed if progress else False,
-            "video_watched": progress.video_watched if progress else False,
-            "flashcards_completed": progress.flashcards_completed if progress else False,
-            "quiz_completed": progress.quiz_completed if progress else False,
-            "quiz_score": progress.quiz_score if progress else None,
-            "assignment_completed": progress.assignment_completed if progress else False
+            "summary_viewed": getattr(progress, "summary_viewed", False) if progress else False,
+            "telugu_summary_viewed": getattr(progress, "telugu_summary_viewed", False) if progress else False,
+            "english_summary_viewed": getattr(progress, "english_summary_viewed", False) if progress else False,
+            "video_watched": getattr(progress, "video_watched", False) if progress else False,
+            "flashcards_completed": getattr(progress, "flashcards_completed", False) if progress else False,
+            "quiz_completed": getattr(progress, "quiz_completed", False) if progress else False,
+            "quiz_score": getattr(progress, "quiz_score", None) if progress else None,
+            "assignment_completed": getattr(progress, "assignment_completed", False) if progress else False
         },
         "pending_reasons": pending_reasons,
         "student_info": {

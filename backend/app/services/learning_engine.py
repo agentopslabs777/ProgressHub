@@ -114,14 +114,14 @@ def get_track_days_status(db: Session, enrollment: Enrollment, track: LearningTr
             "unlock_reason": prog.unlock_reason if prog else None,
             "pending_reasons": pending_reasons,
             "progress": {
-                "summary_viewed": prog.summary_viewed if prog else False,
-                "telugu_summary_viewed": prog.telugu_summary_viewed if prog else False,
-                "english_summary_viewed": prog.english_summary_viewed if prog else False,
-                "video_watched": prog.video_watched if prog else False,
-                "flashcards_completed": prog.flashcards_completed if prog else False,
-                "quiz_completed": prog.quiz_completed if prog else False,
-                "quiz_score": prog.quiz_score if prog else None,
-                "assignment_completed": prog.assignment_completed if prog else False,
+                "summary_viewed": getattr(prog, "summary_viewed", False) if prog else False,
+                "telugu_summary_viewed": getattr(prog, "telugu_summary_viewed", False) if prog else False,
+                "english_summary_viewed": getattr(prog, "english_summary_viewed", False) if prog else False,
+                "video_watched": getattr(prog, "video_watched", False) if prog else False,
+                "flashcards_completed": getattr(prog, "flashcards_completed", False) if prog else False,
+                "quiz_completed": getattr(prog, "quiz_completed", False) if prog else False,
+                "quiz_score": getattr(prog, "quiz_score", None) if prog else None,
+                "assignment_completed": getattr(prog, "assignment_completed", False) if prog else False,
             }
         })
 

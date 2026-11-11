@@ -43,6 +43,9 @@ export function DailyClassPage() {
   const [driveSubmitSuccess, setDriveSubmitSuccess] = useState(false);
   const [showEditDriveForm, setShowEditDriveForm] = useState(false);
   const [localSummaryCompleted, setLocalSummaryCompleted] = useState(false);
+  const [localVideoCompleted, setLocalVideoCompleted] = useState(false);
+  const [localQuizCompleted, setLocalQuizCompleted] = useState(false);
+  const [localAssignmentCompleted, setLocalAssignmentCompleted] = useState(false);
 
   // Employee Review Form State
   const [reviewStatus, setReviewStatus] = useState<string>('approved');
@@ -91,6 +94,15 @@ export function DailyClassPage() {
     onMutate: async ({ activity: actName, value, score }) => {
       if (actName === 'summary_viewed' && value) {
         setLocalSummaryCompleted(true);
+      }
+      if (actName === 'video_watched' && value) {
+        setLocalVideoCompleted(true);
+      }
+      if (actName === 'quiz_completed' && value) {
+        setLocalQuizCompleted(true);
+      }
+      if (actName === 'assignment_completed' && value) {
+        setLocalAssignmentCompleted(true);
       }
       queryClient.setQueryData(['student_day', id, studentIdParam], (old: any) => {
         if (!old) return old;
@@ -212,13 +224,13 @@ export function DailyClassPage() {
   const isSummaryDone = Boolean(localSummaryCompleted || activity.summary_viewed || day.is_completed);
 
   const isVideoUnlocked = Boolean(day.is_completed || isReviewer || isSummaryDone);
-  const isVideoDone = Boolean(activity.video_watched || day.is_completed);
+  const isVideoDone = Boolean(localVideoCompleted || activity.video_watched || day.is_completed);
 
   const isQuizUnlocked = Boolean(day.is_completed || isReviewer || (isVideoUnlocked && isVideoDone));
-  const isQuizDone = Boolean(activity.quiz_completed || day.is_completed);
+  const isQuizDone = Boolean(localQuizCompleted || activity.quiz_completed || day.is_completed);
 
   const isAssignmentUnlocked = Boolean(day.is_completed || isReviewer || (isQuizUnlocked && isQuizDone));
-  const isAssignmentDone = Boolean(activity.assignment_completed || day.is_completed);
+  const isAssignmentDone = Boolean(localAssignmentCompleted || activity.assignment_completed || day.is_completed);
 
   const isSubmissionUnlocked = Boolean(day.is_completed || isReviewer || (isAssignmentUnlocked && isAssignmentDone));
   const isSubmissionDone = Boolean(activeDrive || day.is_completed);
@@ -597,6 +609,7 @@ export function DailyClassPage() {
               )}
               <button
                 onClick={() => {
+                  setLocalVideoCompleted(true);
                   if (!isVideoDone && !isReviewer) {
                     updateActivityMutation.mutate({ activity: 'video_watched', value: true });
                   }
@@ -634,277 +647,110 @@ export function DailyClassPage() {
             </div>
           </div>
         ) : (
-        <div className="panel p-6 bg-white border border-[#e4ebe4] space-y-6 rounded-2xl">
+        <div className="panel p-6 bg-white border border-[#e4ebe4] space-y-5 rounded-2xl shadow-xs">
           <div className="border-b border-[#edf1ee] pb-3 flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-base font-bold text-[#23352e] flex items-center gap-2">
-                <HelpCircle size={18} className="text-[#255f46]" /> Section 3: Daily Quiz & Knowledge Check
+                <HelpCircle size={18} className="text-[#255f46]" /> Section 3: Daily Quiz Assessment
               </h2>
               <p className="text-xs text-[#6e7e76]">
-                Test your understanding of today's core concepts through interactive quizzes and flashcards
+                Launch the official quiz, evaluate your comprehension, and submit your score to unlock Section 4.
               </p>
             </div>
-            {day.quiz_url && (
+            {(day.quiz_url || day.quizUrl) && (
               <a
-                href={day.quiz_url}
+                href={day.quiz_url || day.quizUrl}
                 target="_blank"
                 rel="noreferrer"
                 className="btn btn-primary text-xs py-2 px-4 flex items-center gap-1.5 font-bold shadow-xs"
               >
-                <span>Open Official Quiz</span>
+                <span>Open Quiz Link</span>
                 <ExternalLink size={13} />
               </a>
             )}
           </div>
 
-          {/* Official Quiz Card if URL exists */}
-          {day.quiz_url && (
-            <div className="p-4 rounded-xl border border-[#bce0cb] bg-[#f4faf6] flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-[#285d47] text-white flex items-center justify-center shrink-0">
-                  <Award size={20} />
+          {/* Official Quiz Link Card */}
+          {(day.quiz_url || day.quizUrl) ? (
+            <div className="p-5 rounded-2xl border border-[#bbf7d0] bg-[#f0fdf4] space-y-3 shadow-xs">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <div className="grid h-10 w-10 place-items-center rounded-xl bg-[#15803d] text-white shrink-0 shadow-xs">
+                    <Award size={20} />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-[#14532d]">Official Day {day.day_number} Quiz Assessment</h4>
+                    <p className="text-xs text-[#166534] mt-0.5">
+                      Click below to open and complete today's quiz on the official testing platform.
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h4 className="text-xs font-bold text-[#1f4e39]">Official Day {day.day_number} Quiz Assessment</h4>
-                  <p className="text-[11px] text-[#5e776a]">Complete the faculty quiz to test your learning comprehension</p>
-                </div>
+                <a
+                  href={day.quiz_url || day.quizUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="btn btn-primary text-xs py-2 px-4 flex items-center gap-1.5 font-bold shrink-0 shadow-xs"
+                >
+                  <span>Launch / Open Quiz</span>
+                  <ExternalLink size={13} />
+                </a>
               </div>
-              <a
-                href={day.quiz_url}
-                target="_blank"
-                rel="noreferrer"
-                className="btn btn-primary text-xs py-2 px-4 shrink-0 font-bold"
-              >
-                Launch Quiz <ExternalLink size={12} className="inline ml-1" />
-              </a>
+              <div className="text-[11px] font-mono text-[#15803d] bg-white/80 p-2.5 rounded-lg border border-[#bbf7d0] break-all">
+                {day.quiz_url || day.quizUrl}
+              </div>
+            </div>
+          ) : (
+            <div className="p-6 text-center text-xs text-[#718278] border border-dashed border-[#ccd9cf] rounded-2xl bg-[#fafbfa]">
+              <HelpCircle size={24} className="mx-auto mb-2 text-[#94a39b]" />
+              <p className="font-semibold text-[#485951]">No external quiz URL configured for this day.</p>
+              <p className="text-[11px] text-[#7d8e85] mt-1">You may enter your quiz or self-assessment score below.</p>
             </div>
           )}
 
-          {/* Interactive Flashcards */}
-          {flashcards.length > 0 && (
-            <div className="border border-[#e0e8e2] rounded-2xl p-5 bg-[#fafcfa] space-y-3">
-              <h3 className="text-xs font-bold text-[#23352d] flex items-center gap-1.5">
-                <Layers size={14} className="text-[#255f46]" /> Concept Flashcards ({flashcards.length})
-              </h3>
-              <div
-                onClick={() => setIsFlipped(!isFlipped)}
-                className="p-8 rounded-2xl border border-[#bce0cb] bg-[#f4faf6] cursor-pointer min-h-[140px] grid place-items-center text-center select-none shadow-xs transition hover:bg-[#eaf5ee]"
-              >
-                <div>
-                  <div className="text-[10px] uppercase font-bold text-[#62776c] mb-1">
-                    Card {currentCardIndex + 1} of {flashcards.length} · Click to flip
-                  </div>
-                  <div className="text-sm font-bold text-[#1f4e39]">
-                    {isFlipped
-                      ? flashcards[currentCardIndex].back_text
-                      : flashcards[currentCardIndex].front_text}
-                  </div>
-                </div>
+          {/* Quiz Score Input & Mark as Complete Card */}
+          <div className="p-5 bg-[#fafcfb] border border-[#d8e6dc] rounded-2xl space-y-4 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#e6efe8] pb-3">
+              <div>
+                <h4 className="text-xs font-bold text-[#14532d] uppercase tracking-wide">Enter Your Quiz Score</h4>
+                <p className="text-[11px] text-[#5e776a]">Record your final quiz score out of 100 to mark this section completed</p>
               </div>
-              <div className="flex justify-between items-center pt-2">
-                <button
-                  disabled={currentCardIndex === 0}
-                  onClick={() => { setCurrentCardIndex(c => Math.max(0, c - 1)); setIsFlipped(false); }}
-                  className="btn btn-outline text-xs py-1 px-3"
-                >
-                  Previous Card
-                </button>
-                <button
-                  disabled={currentCardIndex >= flashcards.length - 1}
-                  onClick={() => { setCurrentCardIndex(c => Math.min(flashcards.length - 1, c + 1)); setIsFlipped(false); }}
-                  className="btn btn-outline text-xs py-1 px-3"
-                >
-                  Next Card
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Interactive Self-Check Quiz Questions */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-bold text-[#23352d] uppercase tracking-wider">
-                Daily Knowledge Check Questions
-              </h3>
-              {quizSubmitted && (
-                <span className="text-xs font-extrabold text-[#1f5f3e] bg-[#e1f5ea] px-3 py-1 rounded-full border border-[#bce4cc]">
-                  Score: {
-                    [
-                      { id: 1, correct: 1 },
-                      { id: 2, correct: 0 },
-                      { id: 3, correct: 1 }
-                    ].filter(q => selectedQuizAnswers[q.id] === q.correct).length
-                  } / 3 Correct
+              {isQuizDone && (
+                <span className="text-xs font-extrabold text-[#166534] bg-[#dcfce7] px-3 py-1 rounded-full border border-[#86efac] flex items-center gap-1 self-start sm:self-auto">
+                  <CheckCircle2 size={13} /> Quiz Completed · Score: {activity.quiz_score ?? studentQuizScore}/100
                 </span>
               )}
             </div>
 
-            {[
-              {
-                id: 1,
-                question: 'What is the primary function of Python virtual environments (venv)?',
-                options: [
-                  'To speed up machine boot time',
-                  'To isolate project-specific dependencies and prevent version conflicts',
-                  'To automatically compile Python into C code',
-                  'To backup files to the cloud'
-                ],
-                correctIndex: 1,
-                explanation: 'Virtual environments allow each project to have its own isolated packages without conflicting with system libraries.'
-              },
-              {
-                id: 2,
-                question: 'Which CLI command confirms that Python is correctly installed and added to PATH?',
-                options: [
-                  'python --version (or python3 --version)',
-                  'python -start',
-                  'check-python',
-                  'python run --all'
-                ],
-                correctIndex: 0,
-                explanation: 'The --version flag reports the current active Python runtime version.'
-              },
-              {
-                id: 3,
-                question: 'When submitting your completed assignment file via Google Drive, what must the link permission be set to?',
-                options: [
-                  'Restricted (Only you can access)',
-                  'Anyone with the link can view',
-                  'Commenter only via email invite',
-                  'Private account access'
-                ],
-                correctIndex: 1,
-                explanation: 'Setting access to "Anyone with the link can view" allows faculty and evaluating staff to inspect your submission.'
-              }
-            ].map((q) => {
-              const selected = selectedQuizAnswers[q.id];
-              const isAnswered = selected !== undefined;
-              const isCorrect = isAnswered && selected === q.correctIndex;
-
-              return (
-                <div key={q.id} className="p-4 rounded-xl border border-[#dde5de] bg-[#fbfdfb] space-y-3">
-                  <div className="text-xs font-bold text-[#21352d] flex items-start gap-2">
-                    <span className="w-5 h-5 rounded-full bg-[#285d47] text-white flex items-center justify-center shrink-0 text-[10px]">
-                      {q.id}
-                    </span>
-                    <span>{q.question}</span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                    {q.options.map((opt, optIdx) => {
-                      const isOptionSelected = selected === optIdx;
-                      let optionStyle = 'bg-white border-[#dce5de] text-[#33463e] hover:bg-[#f5f8f5]';
-                      if (quizSubmitted) {
-                        if (optIdx === q.correctIndex) {
-                          optionStyle = 'bg-[#e2f5ea] border-[#86efac] text-[#14532d] font-bold';
-                        } else if (isOptionSelected) {
-                          optionStyle = 'bg-[#faecea] border-[#fca5a5] text-[#7f1d1d] font-semibold';
-                        }
-                      } else if (isOptionSelected) {
-                        optionStyle = 'bg-[#eef5f1] border-[#255f46] text-[#255f46] font-bold shadow-xs';
-                      }
-
-                      return (
-                        <button
-                          key={optIdx}
-                          type="button"
-                          onClick={() => {
-                            if (!quizSubmitted) {
-                              setSelectedQuizAnswers(prev => ({ ...prev, [q.id]: optIdx }));
-                            }
-                          }}
-                          className={`p-3 rounded-lg border text-left text-xs transition flex items-center gap-2 ${optionStyle}`}
-                        >
-                          <span className="w-4 h-4 rounded-full border grid place-items-center shrink-0 text-[10px] font-bold">
-                            {String.fromCharCode(65 + optIdx)}
-                          </span>
-                          <span>{opt}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {quizSubmitted && (
-                    <div className={`p-2.5 rounded-lg text-xs ${isCorrect ? 'bg-[#f0fdf4] text-[#166534] border border-[#bbf7d0]' : 'bg-[#fff1f2] text-[#9f1239] border border-[#fecdd3]'}`}>
-                      <strong>{isCorrect ? '✓ Correct!' : '✗ Needs Review:'}</strong> {q.explanation}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-
-            <div className="flex justify-between items-center pt-2">
-              {!quizSubmitted ? (
-                <button
-                  type="button"
-                  onClick={() => setQuizSubmitted(true)}
-                  disabled={Object.keys(selectedQuizAnswers).length < 3}
-                  className="btn btn-primary text-xs py-2 px-5 font-bold"
-                >
-                  Submit & Check Answers
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedQuizAnswers({});
-                    setQuizSubmitted(false);
-                  }}
-                  className="btn btn-outline text-xs py-1.5 px-4 font-bold"
-                >
-                  Retake Quiz
-                </button>
-              )}
-            </div>
-
-            {/* Dedicated Quiz Score & Completion Form */}
-            <div className="p-4 bg-[#f4faf6] border-2 border-[#86efac] rounded-2xl space-y-3 mt-4">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-lg bg-[#166534] text-white flex items-center justify-center font-bold text-xs">
-                    <Award size={16} />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-bold text-[#14532d]">Record Your Quiz Score to Unlock Assignment</h4>
-                    <p className="text-[11px] text-[#166534]">Enter the score you scored in today's quiz (0 - 100)</p>
-                  </div>
-                </div>
-                {isQuizDone && (
-                  <span className="text-xs font-extrabold text-[#166534] bg-[#dcfce7] px-3 py-1 rounded-full border border-[#86efac] flex items-center gap-1">
-                    <CheckCircle2 size={13} /> Quiz Completed · Score: {activity.quiz_score ?? studentQuizScore}/100
-                  </span>
-                )}
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+              <div className="flex items-center gap-2.5">
+                <label className="text-xs font-bold text-[#1f3529] whitespace-nowrap">Your Score (0 - 100) *:</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={studentQuizScore}
+                  onChange={(e) => setStudentQuizScore(Number(e.target.value))}
+                  className="field text-sm py-2 w-28 font-bold text-center text-[#166534] border-[#86efac] bg-white rounded-xl shadow-xs"
+                />
               </div>
 
-              <div className="flex flex-wrap items-center gap-3 pt-1">
-                <div className="flex items-center gap-2">
-                  <label className="text-xs font-bold text-[#1f3529] whitespace-nowrap">Quiz Score (0 - 100) *:</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={studentQuizScore}
-                    onChange={(e) => setStudentQuizScore(Number(e.target.value))}
-                    className="field text-xs py-1.5 w-24 font-bold text-center text-[#166534] border-[#86efac] bg-white"
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    updateActivityMutation.mutate({
-                      activity: 'quiz_completed',
-                      value: true,
-                      score: Number(studentQuizScore)
-                    });
-                    setActiveTab('assignment');
-                  }}
-                  className="btn btn-primary text-xs py-2 px-5 font-bold shadow-xs flex items-center gap-1.5"
-                >
-                  <Award size={14} />
-                  <span>{isQuizDone ? 'Update Score & Proceed to Assignment' : 'Save Score & Mark Quiz Completed'}</span>
-                  <ArrowRight size={14} />
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setLocalQuizCompleted(true);
+                  updateActivityMutation.mutate({
+                    activity: 'quiz_completed',
+                    value: true,
+                    score: Number(studentQuizScore)
+                  });
+                  setActiveTab('assignment');
+                }}
+                className="btn btn-primary text-xs py-2.5 px-6 font-bold shadow-xs flex items-center justify-center gap-2"
+              >
+                <CheckCircle2 size={15} />
+                <span>{isQuizDone ? 'Update Score & Proceed to Assignment' : 'Mark Quiz as Completed & Proceed to Assignment'}</span>
+                <ArrowRight size={14} />
+              </button>
             </div>
           </div>
 
@@ -924,6 +770,7 @@ export function DailyClassPage() {
               )}
               <button
                 onClick={() => {
+                  setLocalQuizCompleted(true);
                   if (!isQuizDone && !isReviewer) {
                     updateActivityMutation.mutate({
                       activity: 'quiz_completed',

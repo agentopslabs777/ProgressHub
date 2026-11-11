@@ -25,7 +25,11 @@ export function LoginPage() {
       queryClient.setQueryData(['current_user'], session.user);
       setLocation('/dashboard');
     } catch (err: any) {
-      setError(err.message || 'Invalid credentials. Please verify your email and password.');
+      if (err?.status === 401 || err?.message?.toLowerCase().includes('invalid') || err?.message?.toLowerCase().includes('credential')) {
+        setError('Invalid email or password. Please verify your credentials and try again.');
+      } else {
+        setError(err.message || 'Unable to connect to the platform. Please check your credentials and try again.');
+      }
     } finally {
       setLoading(false);
     }

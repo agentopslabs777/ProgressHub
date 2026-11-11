@@ -257,6 +257,9 @@ class DayProgress(Base):
     english_summary_viewed = Column(Boolean, default=False, nullable=False)
     video_watched = Column(Boolean, default=False, nullable=False)
     flashcards_completed = Column(Boolean, default=False, nullable=False)
+    quiz_completed = Column(Boolean, default=False, nullable=False)
+    quiz_score = Column(Integer, nullable=True)
+    assignment_completed = Column(Boolean, default=False, nullable=False)
 
     __table_args__ = (
         UniqueConstraint("enrollment_id", "day_id", name="uq_enrollment_day_progress"),

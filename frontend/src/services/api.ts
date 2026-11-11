@@ -131,9 +131,10 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 // Authentication
 export const authApi = {
   login: async (email: string, password: string): Promise<SessionData> => {
+    tokenStorage.clear();
     const res = await request<SessionData>('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password })
+      body: JSON.stringify({ email: email.trim().toLowerCase(), password })
     });
     tokenStorage.setTokens(res.access_token, res.refresh_token);
     return res;
