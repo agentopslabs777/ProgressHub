@@ -227,6 +227,8 @@ class LearningDayCreate(BaseModel):
     unlock_mode: Optional[str] = "both"  # 'timer', 'manual', 'both'
     require_google_drive_submission: Optional[bool] = False
     completion_requirements: Optional[str] = None
+    base_reward_points: Optional[float] = None
+    reward_points: Optional[float] = None
 
     checklist_items: Optional[List[ChecklistItemCreate]] = None
     resources: Optional[List[LearningResourceCreate]] = None
@@ -254,6 +256,8 @@ class LearningDayUpdate(BaseModel):
     unlock_mode: Optional[str] = None
     require_google_drive_submission: Optional[bool] = None
     completion_requirements: Optional[str] = None
+    base_reward_points: Optional[float] = None
+    reward_points: Optional[float] = None
 
 class LearningDayResponse(BaseSchema):
     id: str

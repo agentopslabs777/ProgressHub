@@ -131,7 +131,11 @@ export function ProgramDetailPage() {
   });
 
   const updateDayMutation = useMutation({
-    mutationFn: (data: any) => programsApi.updateDay(selectedDayId, data),
+    mutationFn: (payload: any) => {
+      const targetId = payload?.dayId || selectedDayId;
+      const body = payload?.data !== undefined ? payload.data : payload;
+      return programsApi.updateDay(targetId, body);
+    },
     onSuccess: () => {
       refreshProgram();
       setEditDayModalOpen(false);
@@ -1494,44 +1498,55 @@ export function ProgramDetailPage() {
 
       {/* ADD DAY / LESSON MODAL */}
       {dayModalOpen && (
-        <Modal title="Add Lesson / Day" onClose={() => setDayModalOpen(false)}>
+        <Modal
+          title="Add Lesson / Day"
+          onClose={() => setDayModalOpen(false)}
+          maxWidth="max-w-2xl"
+        >
           <form
             onSubmit={(e) => {
               e.preventDefault();
               addDayMutation.mutate({
-                title: dayTitle,
+                title: dayTitle.trim(),
                 day_number: dayNumber || 1,
-                description: dayDesc,
-                summary_main: summaryMain,
-                summary_english: summaryEnglish,
-                summary_telugu: summaryTelugu,
-                summary_video_url: dayVideo,
+                description: dayDesc.trim() || undefined,
+                summary_url: summaryUrl.trim() || undefined,
+                summary_main: summaryMain.trim() || undefined,
+                summary_english: summaryEnglish.trim() || undefined,
+                summary_telugu: summaryTelugu.trim() || undefined,
+                video_url: dayVideo.trim() || undefined,
+                summary_video_url: dayVideo.trim() || undefined,
+                quiz_url: quizUrl.trim() || undefined,
+                assignment_url: assignmentUrl.trim() || undefined,
                 require_google_drive_submission: requireDrive,
+                base_reward_points: dayPoints || 20,
                 published: true
               });
             }}
-            className="space-y-3.5 text-xs"
+            className="space-y-3.5 text-xs max-h-[75vh] overflow-y-auto pr-1"
           >
-            <div className="grid grid-cols-4 gap-2">
-              <div className="col-span-3">
-                <label className="mb-1 block font-semibold text-[#334155]">Day / Lesson Title</label>
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
+              <div className="sm:col-span-3">
+                <label className="mb-1 block font-semibold text-[#334155]">Day / Lesson Title *</label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Python Setup, Control Flow"
+                  placeholder="e.g. Python Setup, Variables & Control Flow"
                   value={dayTitle}
                   onChange={(e) => setDayTitle(e.target.value)}
-                  className="field text-xs"
+                  className="field text-xs w-full"
                 />
               </div>
               <div>
-                <label className="mb-1 block font-semibold text-[#334155]">Day #</label>
+                <label className="mb-1 block font-semibold text-[#334155]">Day Sequence # *</label>
                 <input
                   type="number"
+                  min={1}
+                  required
                   value={dayNumber ?? ''}
                   onChange={(e) => setDayNumber(e.target.value === '' ? undefined : Number(e.target.value))}
                   placeholder="1"
-                  className="field text-xs"
+                  className="field text-xs w-full font-bold"
                 />
               </div>
             </div>
@@ -1540,30 +1555,152 @@ export function ProgramDetailPage() {
               <label className="mb-1 block font-semibold text-[#334155]">Short Description</label>
               <input
                 type="text"
-                placeholder="Summary of today's learning objectives…"
+                placeholder="Key learning objectives and concepts covered today…"
                 value={dayDesc}
                 onChange={(e) => setDayDesc(e.target.value)}
-                className="field text-xs"
+                className="field text-xs w-full"
               />
             </div>
 
-            <div>
-              <label className="mb-1 block font-semibold text-[#334155]">Main Lecture Video URL</label>
-              <input
-                type="url"
-                placeholder="https://www.youtube.com/watch?v=..."
-                value={dayVideo}
-                onChange={(e) => setDayVideo(e.target.value)}
-                className="field text-xs"
-              />
+            {/* SECTION 1: SUMMARY LINK */}
+            <div className="p-3 bg-[#f8fafc] rounded-xl border border-[#e2e8f0] space-y-1.5">
+              <label className="font-bold text-[#1e293b] flex items-center gap-1.5 text-xs">
+                <Video size={13} className="text-[#3b82f6]" /> 01. Summary Link / Documentation URL
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  placeholder="https://docs.python.org/ or documentation / notion / slides URL"
+                  value={summaryUrl}
+                  onChange={(e) => setSummaryUrl(e.target.value)}
+                  className="field text-xs flex-1 bg-white"
+                />
+                {summaryUrl && (
+                  <a
+                    href={summaryUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-soft text-xs shrink-0 flex items-center gap-1"
+                  >
+                    <ExternalLink size={12} /> Test
+                  </a>
+                )}
+              </div>
+              <span className="text-[10px] text-[#64748b]">
+                Students click 01.Summary to open this document or notes link.
+              </span>
+            </div>
+
+            {/* SECTION 2: MAIN CLASS VIDEO */}
+            <div className="p-3 bg-[#f8fafc] rounded-xl border border-[#e2e8f0] space-y-1.5">
+              <label className="font-bold text-[#1e293b] flex items-center gap-1.5 text-xs">
+                <Video size={13} className="text-[#10b981]" /> 02. Main Class Video Link / Embed URL
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  placeholder="https://www.youtube.com/watch?v=... or direct MP4 / Vimeo video URL"
+                  value={dayVideo}
+                  onChange={(e) => setDayVideo(e.target.value)}
+                  className="field text-xs flex-1 bg-white"
+                />
+                {dayVideo && (
+                  <a
+                    href={dayVideo}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-soft text-xs shrink-0 flex items-center gap-1"
+                  >
+                    <ExternalLink size={12} /> Test
+                  </a>
+                )}
+              </div>
+              <span className="text-[10px] text-[#64748b]">
+                The main recorded lecture or class session for students to watch.
+              </span>
+            </div>
+
+            {/* SECTION 3: QUIZ */}
+            <div className="p-3 bg-[#f8fafc] rounded-xl border border-[#e2e8f0] space-y-1.5">
+              <label className="font-bold text-[#1e293b] flex items-center gap-1.5 text-xs">
+                <ListOrdered size={13} className="text-[#8b5cf6]" /> 03. Quiz Link / Google Form URL
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  placeholder="https://forms.google.com/... or quiz / assessment platform URL"
+                  value={quizUrl}
+                  onChange={(e) => setQuizUrl(e.target.value)}
+                  className="field text-xs flex-1 bg-white"
+                />
+                {quizUrl && (
+                  <a
+                    href={quizUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-soft text-xs shrink-0 flex items-center gap-1"
+                  >
+                    <ExternalLink size={12} /> Test
+                  </a>
+                )}
+              </div>
+              <span className="text-[10px] text-[#64748b]">
+                Students click 03.Quiz to take the day's concept evaluation.
+              </span>
+            </div>
+
+            {/* SECTION 4: ASSIGNMENT */}
+            <div className="p-3 bg-[#f8fafc] rounded-xl border border-[#e2e8f0] space-y-1.5">
+              <label className="font-bold text-[#1e293b] flex items-center gap-1.5 text-xs">
+                <ClipboardCheck size={13} className="text-[#f59e0b]" /> 04. Assignment Brief Link / Google Doc URL
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  placeholder="https://docs.google.com/... or GitHub / project assignment document"
+                  value={assignmentUrl}
+                  onChange={(e) => setAssignmentUrl(e.target.value)}
+                  className="field text-xs flex-1 bg-white"
+                />
+                {assignmentUrl && (
+                  <a
+                    href={assignmentUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-soft text-xs shrink-0 flex items-center gap-1"
+                  >
+                    <ExternalLink size={12} /> Test
+                  </a>
+                )}
+              </div>
+              <span className="text-[10px] text-[#64748b]">
+                The instructions, problem statements, and requirements for the daily task.
+              </span>
+            </div>
+
+            {/* SECTION 5: GOOGLE DRIVE REQUIREMENT */}
+            <div className="p-3 bg-[#ecfdf5] rounded-xl border border-[#a7f3d0] flex items-center justify-between gap-3">
+              <div>
+                <span className="font-bold text-[#065f46] text-xs block">05. Google Drive Link Submission</span>
+                <span className="text-[11px] text-[#047857]">Requires student to submit Word Document / Drive link to complete day</span>
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer font-bold text-xs text-[#065f46]">
+                <input
+                  type="checkbox"
+                  checked={requireDrive}
+                  onChange={(e) => setRequireDrive(e.target.checked)}
+                  className="rounded text-[#059669]"
+                />
+                <span>Required</span>
+              </label>
             </div>
 
             <div className="mt-5 flex justify-end gap-2 pt-2 border-t border-[#edf0ea]">
               <button type="button" className="btn btn-soft text-xs" onClick={() => setDayModalOpen(false)}>
                 Cancel
               </button>
-              <button type="submit" disabled={addDayMutation.isPending} className="btn btn-primary text-xs">
-                {addDayMutation.isPending ? 'Creating…' : 'Create Day'}
+              <button type="submit" disabled={addDayMutation.isPending} className="btn btn-primary text-xs font-bold">
+                {addDayMutation.isPending ? 'Creating…' : 'Create Day (with Links)'}
               </button>
             </div>
           </form>

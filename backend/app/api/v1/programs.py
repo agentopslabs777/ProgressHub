@@ -478,7 +478,8 @@ def add_day_to_track(
         attachments=data.attachments,
         published=data.published,
         require_approval=data.require_approval,
-        require_task_submission=data.require_task_submission
+        require_task_submission=data.require_task_submission,
+        base_reward_points=data.base_reward_points or getattr(data, 'reward_points', None)
     )
     db.add(day)
     db.commit()
@@ -642,6 +643,10 @@ def update_day(
         day.published = data.published
     if data.require_approval is not None:
         day.require_approval = data.require_approval
+    if data.base_reward_points is not None:
+        day.base_reward_points = data.base_reward_points
+    elif getattr(data, 'reward_points', None) is not None:
+        day.base_reward_points = data.reward_points
     if data.require_task_submission is not None:
         day.require_task_submission = data.require_task_submission
 
