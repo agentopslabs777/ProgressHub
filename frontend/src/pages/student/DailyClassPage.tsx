@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link, useParams } from 'wouter';
+import { Link, useParams, useLocation } from 'wouter';
 import {
   ArrowLeft, CheckSquare, Upload, Video, FileText, CheckCircle2,
   Clock, Download, Sparkles, AlertCircle, ArrowRight, ExternalLink,
@@ -13,6 +13,7 @@ import { PageTitle, StatusBadge, LoadingState, ErrorState } from '@/components/c
 
 export function DailyClassPage() {
   const { id = '' } = useParams<{ id: string }>();
+  const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
 
   // Check student_id in URL params if employee/admin is reviewing
@@ -168,6 +169,22 @@ export function DailyClassPage() {
     mutationFn: () => studentApi.completeDay(id),
     onSuccess: invalidateAll
   });
+
+  useEffect(() => {
+    // Whenever navigating to a new day, always reset tab to Section 1: Summary
+    setActiveTab('summary');
+    setLocalSummaryCompleted(false);
+    setLocalVideoCompleted(false);
+    setLocalQuizCompleted(false);
+    setLocalAssignmentCompleted(false);
+    setOptimisticDrive(null);
+    setDriveUrl('');
+    setDriveNotes('');
+    setDriveUrlError('');
+    setShowEditDriveForm(false);
+    setDriveSubmitSuccess(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [id]);
 
   useEffect(() => {
     if (day?.checklist) {
@@ -1112,13 +1129,22 @@ export function DailyClassPage() {
                 </div>
 
                 {day.next_day && (
-                  <Link
-                    href={`/learning-days/${day.next_day.id}${studentIdParam ? `?student_id=${studentIdParam}` : ''}`}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('summary');
+                      setLocalSummaryCompleted(false);
+                      setLocalVideoCompleted(false);
+                      setLocalQuizCompleted(false);
+                      setLocalAssignmentCompleted(false);
+                      setLocation(`/learning-days/${day.next_day.id}${studentIdParam ? `?student_id=${studentIdParam}` : ''}`);
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }}
                     className="btn btn-primary text-xs py-2.5 px-5 flex items-center gap-2 font-bold shadow-sm"
                   >
-                    <span>Proceed to Day {day.next_day.day_number}</span>
+                    <span>Proceed to Day {day.next_day.day_number} (Summary)</span>
                     <ArrowRight size={15} />
-                  </Link>
+                  </button>
                 )}
               </div>
             )}
