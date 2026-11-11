@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session
 from backend.app.db.session import get_db
 from backend.app.models.models import (
     Program, LearningTrack, LearningDay, Enrollment, DayProgress,
-    ChecklistTemplateItem, DailyTask, LearningResource, Flashcard, User
+    ChecklistTemplateItem, DailyTask, LearningResource, Flashcard, User,
+    GoogleDriveSubmission
 )
 from backend.app.schemas.schemas import (
     ProgramCreate, ProgramUpdate, ProgramResponse,
@@ -23,6 +24,21 @@ from backend.app.schemas.schemas import (
 from backend.app.permissions.permissions import get_current_user, require_admin, require_employee, log_audit
 
 router = APIRouter(tags=["Programs"])
+
+@router.get("/programs/public", response_model=List[dict])
+def list_public_programs(
+    db: Session = Depends(get_db)
+):
+    """Public program listing for student self-registration form."""
+    programs = db.query(Program).order_by(Program.created_at.asc()).all()
+    return [{
+        "id": p.id,
+        "name": p.name,
+        "code": p.code,
+        "description": p.description,
+        "status": p.status,
+        "price": p.price
+    } for p in programs]
 
 @router.get("/programs", response_model=List[dict])
 def list_programs(
@@ -286,6 +302,50 @@ def update_program(
         tracks=[]
     )
 
+@router.delete("/programs/{program_id}")
+def delete_program(
+    program_id: str,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    program = db.query(Program).filter(Program.id == program_id).first()
+    if not program:
+        raise HTTPException(status_code=404, detail="Program not found")
+
+    prog_name = program.name
+
+    # 1. Clean up tracks and their days
+    tracks = db.query(LearningTrack).filter(LearningTrack.program_id == program_id).all()
+    for t in tracks:
+        day_ids = [d.id for d in db.query(LearningDay.id).filter(LearningDay.track_id == t.id).all()]
+        if day_ids:
+            db.query(GoogleDriveSubmission).filter(GoogleDriveSubmission.day_id.in_(day_ids)).delete(synchronize_session=False)
+            db.query(DailyTask).filter(DailyTask.day_id.in_(day_ids)).delete(synchronize_session=False)
+            db.query(ChecklistTemplateItem).filter(ChecklistTemplateItem.day_id.in_(day_ids)).delete(synchronize_session=False)
+            db.query(LearningResource).filter(LearningResource.day_id.in_(day_ids)).delete(synchronize_session=False)
+            db.query(Flashcard).filter(Flashcard.day_id.in_(day_ids)).delete(synchronize_session=False)
+            db.query(DayProgress).filter(DayProgress.day_id.in_(day_ids)).delete(synchronize_session=False)
+            db.query(LearningDay).filter(LearningDay.id.in_(day_ids)).delete(synchronize_session=False)
+        db.delete(t)
+
+    # 2. Clean up enrollments
+    db.query(Enrollment).filter(Enrollment.program_id == program_id).delete(synchronize_session=False)
+
+    # 3. Delete program
+    db.delete(program)
+    db.commit()
+
+    log_audit(
+        db=db,
+        actor=current_user,
+        action="DELETE_PROGRAM",
+        target_type="program",
+        target_id=program_id,
+        details=f"Course Program '{prog_name}' deleted"
+    )
+
+    return {"message": f"Program '{prog_name}' deleted successfully", "id": program_id}
+
 # Learning Tracks Endpoints
 @router.post("/programs/{program_id}/tracks")
 def add_track_to_program(
@@ -403,11 +463,11 @@ def add_day_to_track(
         title=data.title.strip(),
         description=data.description,
         content=data.content,
-        video_url=data.video_url,
+        video_url=data.video_url or data.summary_video_url,
         summary_main=data.summary_main,
         summary_telugu=data.summary_telugu,
         summary_english=data.summary_english,
-        summary_video_url=data.summary_video_url,
+        summary_video_url=data.summary_video_url or data.video_url,
         summary_url=data.summary_url,
         quiz_url=data.quiz_url,
         assignment_url=data.assignment_url,
@@ -550,6 +610,8 @@ def update_day(
         day.content = data.content
     if data.video_url is not None:
         day.video_url = data.video_url
+        if not day.summary_video_url:
+            day.summary_video_url = data.video_url
     if data.summary_main is not None:
         day.summary_main = data.summary_main
     if data.summary_telugu is not None:
@@ -558,6 +620,8 @@ def update_day(
         day.summary_english = data.summary_english
     if data.summary_video_url is not None:
         day.summary_video_url = data.summary_video_url
+        if not day.video_url:
+            day.video_url = data.summary_video_url
     if data.summary_url is not None:
         day.summary_url = data.summary_url
     if data.quiz_url is not None:

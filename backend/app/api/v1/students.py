@@ -6,7 +6,12 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from backend.app.db.session import get_db
 from backend.app.core.security import get_password_hash
-from backend.app.models.models import User, Enrollment, DayProgress, TaskSubmission, ChecklistCompletion
+from backend.app.models.models import (
+    User, Enrollment, DayProgress, TaskSubmission, ChecklistCompletion,
+    StudentApplication, Program, GoogleDriveSubmission, AttendanceRecord,
+    RewardTransaction, RewardWallet, ProgramPurchase, RefreshToken, Notification, ChatMessage
+)
+from pydantic import BaseModel, EmailStr
 from backend.app.schemas.schemas import UserCreate, UserUpdate, UserResponse
 from backend.app.permissions.permissions import get_current_user, require_admin, require_employee, log_audit
 from backend.app.services.learning_engine import calculate_enrollment_progress
@@ -135,6 +140,263 @@ def create_student(
     )
 
     return UserResponse.model_validate(student)
+
+
+# =====================================================================
+# PUBLIC STUDENT REGISTRATION FORM & ADMIN APPROVAL AUTOMATION
+# =====================================================================
+
+class StudentRegisterForm(BaseModel):
+    full_name: str
+    contact_number: Optional[str] = None
+    email: EmailStr
+    password: str
+    payment_id: Optional[str] = None
+    program_id: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class ApplicationApproveRequest(BaseModel):
+    program_id: Optional[str] = None
+    employee_id: Optional[str] = None
+
+
+class ApplicationRejectRequest(BaseModel):
+    reason: Optional[str] = None
+
+
+@router.post("/register")
+def public_student_register(
+    data: StudentRegisterForm,
+    db: Session = Depends(get_db)
+):
+    clean_email = data.email.strip().lower()
+    
+    # 1. Check if an active student account already exists
+    existing_user = db.query(User).filter(User.email == clean_email).first()
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="An account with this email address already exists. Please log in directly."
+        )
+
+    # 2. Check if a pending application already exists for this email
+    existing_app = db.query(StudentApplication).filter(
+        StudentApplication.email == clean_email,
+        StudentApplication.status == "pending"
+    ).first()
+
+    if existing_app:
+        # Update existing pending application with latest details & payment ID
+        existing_app.full_name = data.full_name.strip()
+        existing_app.contact_number = data.contact_number.strip() if data.contact_number else None
+        existing_app.password_hash = get_password_hash(data.password)
+        existing_app.payment_id = data.payment_id.strip() if data.payment_id else existing_app.payment_id
+        if data.program_id:
+            existing_app.program_id = data.program_id
+        if data.notes:
+            existing_app.notes = data.notes.strip()
+        existing_app.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(existing_app)
+        return {
+            "success": True,
+            "application_id": existing_app.id,
+            "status": "pending",
+            "message": "Your registration details and payment ID have been updated. Waiting for admin approval."
+        }
+
+    # 3. Create new StudentApplication
+    app_record = StudentApplication(
+        full_name=data.full_name.strip(),
+        contact_number=data.contact_number.strip() if data.contact_number else None,
+        email=clean_email,
+        password_hash=get_password_hash(data.password),
+        payment_id=data.payment_id.strip() if data.payment_id else None,
+        program_id=data.program_id if data.program_id else None,
+        notes=data.notes.strip() if data.notes else None,
+        status="pending"
+    )
+    db.add(app_record)
+    db.commit()
+    db.refresh(app_record)
+
+    return {
+        "success": True,
+        "application_id": app_record.id,
+        "status": "pending",
+        "message": "Application submitted successfully! Your account and course access will be activated upon administrator approval."
+    }
+
+
+@router.get("/applications")
+def list_student_applications(
+    status_filter: Optional[str] = Query(None),
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    query = db.query(StudentApplication)
+    if status_filter:
+        query = query.filter(StudentApplication.status == status_filter)
+    
+    applications = query.order_by(StudentApplication.created_at.desc()).all()
+    results = []
+    for app in applications:
+        prog = db.query(Program).filter(Program.id == app.program_id).first() if app.program_id else None
+        reviewer = db.query(User).filter(User.id == app.reviewed_by).first() if app.reviewed_by else None
+        results.append({
+            "id": app.id,
+            "full_name": app.full_name,
+            "contact_number": app.contact_number,
+            "email": app.email,
+            "payment_id": app.payment_id,
+            "program_id": app.program_id,
+            "program_name": f"{prog.name} ({prog.code})" if prog else "None Selected",
+            "status": app.status,
+            "notes": app.notes,
+            "rejection_reason": app.rejection_reason,
+            "reviewed_by": reviewer.full_name if reviewer else None,
+            "reviewed_at": app.reviewed_at.isoformat() if app.reviewed_at else None,
+            "created_student_id": app.created_student_id,
+            "created_enrollment_id": app.created_enrollment_id,
+            "created_at": app.created_at.isoformat() if app.created_at else None
+        })
+    return results
+
+
+@router.post("/applications/{application_id}/approve")
+def approve_student_application(
+    application_id: str,
+    data: ApplicationApproveRequest,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    app = db.query(StudentApplication).filter(StudentApplication.id == application_id).first()
+    if not app:
+        raise HTTPException(status_code=404, detail="Student application not found")
+    
+    if app.status == "approved" and app.created_student_id:
+        return {
+            "success": True,
+            "message": "This application has already been approved.",
+            "student_id": app.created_student_id,
+            "enrollment_id": app.created_enrollment_id
+        }
+
+    # 1. Resolve target Program ID
+    chosen_program_id = data.program_id or app.program_id
+    if not chosen_program_id:
+        # Default to first available program if none specified
+        first_prog = db.query(Program).order_by(Program.created_at.asc()).first()
+        if not first_prog:
+            raise HTTPException(status_code=400, detail="No program available to enroll the student.")
+        chosen_program_id = first_prog.id
+
+    program = db.query(Program).filter(Program.id == chosen_program_id).first()
+    if not program:
+        raise HTTPException(status_code=404, detail="Selected program does not exist.")
+
+    # 2. Check or create User
+    student = db.query(User).filter(User.email == app.email.lower().strip()).first()
+    if not student:
+        identifier = generate_student_identifier(db)
+        student = User(
+            email=app.email.lower().strip(),
+            full_name=app.full_name.strip(),
+            password_hash=app.password_hash,
+            role="student",
+            status="active",
+            identifier=identifier,
+            contact_number=app.contact_number
+        )
+        db.add(student)
+        db.flush()
+    else:
+        # Reactivate or update role if needed
+        student.status = "active"
+        if not student.contact_number and app.contact_number:
+            student.contact_number = app.contact_number
+
+    # 3. Check or create Enrollment & assign faculty
+    enrollment = db.query(Enrollment).filter(
+        Enrollment.student_id == student.id,
+        Enrollment.program_id == chosen_program_id
+    ).first()
+
+    assigned_emp_id = data.employee_id.strip() if data.employee_id else None
+
+    if not enrollment:
+        enrollment = Enrollment(
+            student_id=student.id,
+            program_id=chosen_program_id,
+            employee_id=assigned_emp_id,
+            status="active"
+        )
+        db.add(enrollment)
+        db.flush()
+    else:
+        enrollment.status = "active"
+        if assigned_emp_id:
+            enrollment.employee_id = assigned_emp_id
+
+    # 4. Mark application approved
+    app.status = "approved"
+    app.program_id = chosen_program_id
+    app.reviewed_by = current_user.id
+    app.reviewed_at = datetime.utcnow()
+    app.created_student_id = student.id
+    app.created_enrollment_id = enrollment.id
+
+    db.commit()
+
+    log_audit(
+        db=db,
+        actor=current_user,
+        action="APPROVE_STUDENT_APPLICATION",
+        target_type="student_application",
+        target_id=app.id,
+        details=f"Approved application for {student.full_name} ({student.email}) into {program.name}. Faculty: {assigned_emp_id or 'Unassigned'}"
+    )
+
+    return {
+        "success": True,
+        "message": f"Successfully approved {student.full_name}! Account created, enrolled in {program.name}, and faculty assigned.",
+        "student_id": student.id,
+        "enrollment_id": enrollment.id
+    }
+
+
+@router.post("/applications/{application_id}/reject")
+def reject_student_application(
+    application_id: str,
+    data: ApplicationRejectRequest,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    app = db.query(StudentApplication).filter(StudentApplication.id == application_id).first()
+    if not app:
+        raise HTTPException(status_code=404, detail="Student application not found")
+
+    app.status = "rejected"
+    app.rejection_reason = data.reason.strip() if data.reason else "Application declined by administrator"
+    app.reviewed_by = current_user.id
+    app.reviewed_at = datetime.utcnow()
+    db.commit()
+
+    log_audit(
+        db=db,
+        actor=current_user,
+        action="REJECT_STUDENT_APPLICATION",
+        target_type="student_application",
+        target_id=app.id,
+        details=f"Rejected application for {app.full_name} ({app.email}). Reason: {app.rejection_reason}"
+    )
+
+    return {
+        "success": True,
+        "message": f"Application for {app.full_name} has been rejected."
+    }
+
 
 @router.get("/{student_id}")
 def get_student_details(
@@ -324,3 +586,68 @@ def unblock_student(
     )
 
     return {"message": f"Student {student.full_name} has been unblocked."}
+
+
+@router.delete("/{student_id}")
+def delete_student(
+    student_id: str,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    student = db.query(User).filter(User.id == student_id, User.role == "student").first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    student_name = student.full_name
+    student_email = student.email
+
+    # 1. Gather all student enrollment IDs
+    enrs = db.query(Enrollment).filter(Enrollment.student_id == student_id).all()
+    enr_ids = [e.id for e in enrs]
+
+    if enr_ids:
+        # Delete dependent enrollment records
+        db.query(DayProgress).filter(DayProgress.enrollment_id.in_(enr_ids)).delete(synchronize_session=False)
+        db.query(ChecklistCompletion).filter(ChecklistCompletion.enrollment_id.in_(enr_ids)).delete(synchronize_session=False)
+        db.query(TaskSubmission).filter(TaskSubmission.enrollment_id.in_(enr_ids)).delete(synchronize_session=False)
+        db.query(GoogleDriveSubmission).filter(GoogleDriveSubmission.enrollment_id.in_(enr_ids)).delete(synchronize_session=False)
+        
+        # Unlink any student applications pointing to these enrollments
+        apps = db.query(StudentApplication).filter(StudentApplication.created_enrollment_id.in_(enr_ids)).all()
+        for a in apps:
+            a.created_enrollment_id = None
+
+        # Delete enrollments
+        db.query(Enrollment).filter(Enrollment.id.in_(enr_ids)).delete(synchronize_session=False)
+
+    # 2. Delete user-specific records
+    db.query(AttendanceRecord).filter(AttendanceRecord.student_id == student_id).delete(synchronize_session=False)
+    db.query(RewardTransaction).filter(RewardTransaction.user_id == student_id).delete(synchronize_session=False)
+    db.query(RewardWallet).filter(RewardWallet.user_id == student_id).delete(synchronize_session=False)
+    db.query(ProgramPurchase).filter(ProgramPurchase.student_id == student_id).delete(synchronize_session=False)
+    db.query(RefreshToken).filter(RefreshToken.user_id == student_id).delete(synchronize_session=False)
+    db.query(Notification).filter(Notification.user_id == student_id).delete(synchronize_session=False)
+    db.query(ChatMessage).filter(ChatMessage.sender_id == student_id).delete(synchronize_session=False)
+
+    # Unlink applications pointing to this student
+    student_apps = db.query(StudentApplication).filter(StudentApplication.created_student_id == student_id).all()
+    for sa in student_apps:
+        sa.created_student_id = None
+
+    # 3. Delete the student User record
+    db.delete(student)
+    db.commit()
+
+    log_audit(
+        db=db,
+        actor=current_user,
+        action="DELETE_STUDENT",
+        target_type="student",
+        target_id=student_id,
+        details=f"Student {student_name} ({student_email}) was permanently deleted"
+    )
+
+    return {"success": True, "message": f"Student {student_name} has been permanently deleted."}
+
+
+

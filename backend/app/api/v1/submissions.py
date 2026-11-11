@@ -111,11 +111,15 @@ def submit_google_drive_evidence(
             day_id=day.id,
             is_completed=True,
             completed_at=datetime.utcnow(),
-            summary_viewed=True
+            summary_viewed=True,
+            video_watched=True,
+            quiz_completed=True,
+            assignment_completed=True
         )
         db.add(day_prog)
     else:
         day_prog.is_completed = True
+        day_prog.assignment_completed = True
         if not day_prog.completed_at:
             day_prog.completed_at = datetime.utcnow()
 

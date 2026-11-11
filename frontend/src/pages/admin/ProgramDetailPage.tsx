@@ -61,6 +61,7 @@ export function ProgramDetailPage() {
   const [dayApproval, setDayApproval] = useState(false);
   const [dayTaskRequired, setDayTaskRequired] = useState(false);
   const [dayPublished, setDayPublished] = useState(true);
+  const [dayPoints, setDayPoints] = useState<number>(20);
 
 // Live session form removed
 
@@ -90,6 +91,15 @@ export function ProgramDetailPage() {
   const updateProgramMutation = useMutation({
     mutationFn: (data: any) => programsApi.update(id, data),
     onSuccess: refreshProgram
+  });
+
+  const deleteProgramMutation = useMutation({
+    mutationFn: () => programsApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['programs'] });
+      window.location.href = '/programs';
+    },
+    onError: (err: any) => alert(err?.message || 'Failed to delete course program')
   });
 
   const addTrackMutation = useMutation({
@@ -194,6 +204,7 @@ export function ProgramDetailPage() {
     setDayApproval(Boolean(day.require_approval));
     setDayTaskRequired(Boolean(day.require_task_submission));
     setDayPublished(Boolean(day.published));
+    setDayPoints(day.reward_points ?? day.rewardPoints ?? 20);
 
     setQuizTitle(day.title ? `${day.title} Quiz` : 'Daily Quiz');
     setQuizInstructions(day.description || 'Answer key concept questions based on today\'s lecture.');
@@ -219,6 +230,11 @@ export function ProgramDetailPage() {
   const openAssignmentModal = (day: any) => {
     populateDayForEdit(day);
     setAssignmentModalOpen(true);
+  };
+
+  const openEditDayModal = (day: any) => {
+    populateDayForEdit(day);
+    setEditDayModalOpen(true);
   };
 
   const toggleExpandDay = (dayId: string) => {
@@ -297,6 +313,20 @@ export function ProgramDetailPage() {
             >
               <FileSpreadsheet size={16} className="text-[#107c41]" />
               <span>Import Excel</span>
+            </button>
+
+            {/* Delete Course Button */}
+            <button
+              onClick={() => {
+                if (window.confirm(`Are you sure you want to permanently delete course "${program.name}" (${program.code})? This will delete all its modules, days, and student records.`)) {
+                  deleteProgramMutation.mutate();
+                }
+              }}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-600 px-3.5 py-2 text-xs font-bold shadow-xs transition"
+              title="Delete Course Program"
+            >
+              <Trash2 size={15} />
+              <span>Delete Course</span>
             </button>
 
             {/* 2. Solid Blue "+ Add Content" Button with Dropdown (MATCHING IMAGE 2) */}
@@ -450,8 +480,18 @@ export function ProgramDetailPage() {
                             </span>
                           </div>
 
-                          {/* Right: + Add Content, (✓) Published ∨ dropdown, Delete Day, ^ Chevron */}
-                          <div className="flex items-center gap-3 sm:gap-4" onClick={(e) => e.stopPropagation()}>
+                          {/* Right: Edit Day, + Add Content, (✓) Published ∨ dropdown, Delete Day, ^ Chevron */}
+                          <div className="flex items-center gap-2 sm:gap-3" onClick={(e) => e.stopPropagation()}>
+                            {/* Edit Day button */}
+                            <button
+                              type="button"
+                              onClick={() => openEditDayModal(day)}
+                              className="inline-flex items-center gap-1 text-xs font-semibold text-[#1e293b] hover:text-[#0047ba] bg-slate-50 hover:bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200 transition"
+                              title="Edit Day Title, Description & Links"
+                            >
+                              <Edit size={12} /> Edit Day
+                            </button>
+
                             {/* + Add Content link */}
                             <button
                               onClick={() => openAssignmentModal(day)}
@@ -564,7 +604,7 @@ export function ProgramDetailPage() {
                               onClick={() => openSummaryModal(day)}
                               className="flex items-center justify-between py-3.5 pl-6 hover:bg-[#f8fafc] cursor-pointer rounded-lg transition group"
                             >
-                              <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-2.5 flex-wrap">
                                 <Video size={16} className="text-[#475569] shrink-0" />
                                 <span className="text-xs font-semibold text-[#1e293b] group-hover:text-[#0047ba] transition">
                                   01.Summary
@@ -581,6 +621,17 @@ export function ProgramDetailPage() {
                                     <ExternalLink size={11} /> Open Link
                                   </a>
                                 )}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openSummaryModal(day);
+                                  }}
+                                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#0047ba] hover:underline bg-[#eff6ff] hover:bg-[#dbeafe] px-2.5 py-1 rounded border border-[#bfdbfe] transition"
+                                  title="Edit summary link and notes"
+                                >
+                                  <Edit size={12} /> Edit Link
+                                </button>
                               </div>
 
                               <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
@@ -617,7 +668,7 @@ export function ProgramDetailPage() {
                               onClick={() => openVideoModal(day)}
                               className="flex items-center justify-between py-3.5 pl-6 hover:bg-[#f8fafc] cursor-pointer rounded-lg transition group"
                             >
-                              <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-2.5 flex-wrap">
                                 <Video size={16} className="text-[#475569] shrink-0" />
                                 <span className="text-xs font-semibold text-[#1e293b] group-hover:text-[#0047ba] transition">
                                   02.Main Class Video
@@ -634,6 +685,17 @@ export function ProgramDetailPage() {
                                     <ExternalLink size={11} /> Open Video
                                   </a>
                                 )}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openVideoModal(day);
+                                  }}
+                                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#0047ba] hover:underline bg-[#eff6ff] hover:bg-[#dbeafe] px-2.5 py-1 rounded border border-[#bfdbfe] transition"
+                                  title="Edit video link"
+                                >
+                                  <Edit size={12} /> Edit Link
+                                </button>
                               </div>
 
                               <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
@@ -670,7 +732,7 @@ export function ProgramDetailPage() {
                               onClick={() => openQuizModal(day)}
                               className="flex items-center justify-between py-3.5 pl-6 hover:bg-[#f8fafc] cursor-pointer rounded-lg transition group"
                             >
-                              <div className="flex items-center gap-2.5">
+                              <div className="flex items-center gap-2.5 flex-wrap">
                                 <ListOrdered size={16} className="text-[#475569] shrink-0" />
                                 <span className="text-xs font-semibold text-[#1e293b] group-hover:text-[#0047ba] transition">
                                   03.Quiz
@@ -688,6 +750,17 @@ export function ProgramDetailPage() {
                                     <ExternalLink size={11} /> Open Quiz
                                   </a>
                                 )}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openQuizModal(day);
+                                  }}
+                                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#0047ba] hover:underline bg-[#eff6ff] hover:bg-[#dbeafe] px-2.5 py-1 rounded border border-[#bfdbfe] transition"
+                                  title="Edit quiz link"
+                                >
+                                  <Edit size={12} /> Edit Link
+                                </button>
                               </div>
 
                               <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
@@ -724,7 +797,7 @@ export function ProgramDetailPage() {
                               onClick={() => openAssignmentModal(day)}
                               className="flex items-center justify-between py-3.5 pl-6 hover:bg-[#f8fafc] cursor-pointer rounded-lg transition group"
                             >
-                              <div className="flex items-center gap-2.5">
+                              <div className="flex items-center gap-2.5 flex-wrap">
                                 <ClipboardCheck size={16} className="text-[#475569] shrink-0" />
                                 <span className="text-xs font-semibold text-[#1e293b] group-hover:text-[#0047ba] transition">
                                   04.Assignment
@@ -742,6 +815,17 @@ export function ProgramDetailPage() {
                                     <ExternalLink size={11} /> Open Assignment
                                   </a>
                                 )}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openAssignmentModal(day);
+                                  }}
+                                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#0047ba] hover:underline bg-[#eff6ff] hover:bg-[#dbeafe] px-2.5 py-1 rounded border border-[#bfdbfe] transition"
+                                  title="Edit assignment link"
+                                >
+                                  <Edit size={12} /> Edit Link
+                                </button>
                               </div>
 
                               <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
@@ -1480,6 +1564,193 @@ export function ProgramDetailPage() {
               </button>
               <button type="submit" disabled={addDayMutation.isPending} className="btn btn-primary text-xs">
                 {addDayMutation.isPending ? 'Creating…' : 'Create Day'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* EDIT DAY MODAL (FULL EDIT FOR DAY TITLE & ALL 5 SECTIONS) */}
+      {editDayModalOpen && selectedDay && (
+        <Modal
+          title={`Edit Day ${dayNumber || selectedDay.dayNumber || selectedDay.day_number}: ${dayTitle || selectedDay.title}`}
+          onClose={() => setEditDayModalOpen(false)}
+          maxWidth="max-w-2xl"
+        >
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              updateDayMutation.mutate({
+                title: dayTitle,
+                day_number: dayNumber,
+                reward_points: dayPoints,
+                description: dayDesc,
+                summary_url: summaryUrl,
+                summary_main: summaryMain,
+                summary_english: summaryEnglish,
+                summary_telugu: summaryTelugu,
+                video_url: dayVideo,
+                summary_video_url: dayVideo,
+                quiz_url: quizUrl,
+                assignment_url: assignmentUrl,
+                require_google_drive_submission: requireDrive
+              });
+            }}
+            className="space-y-4 text-xs max-h-[75vh] overflow-y-auto pr-1"
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="sm:col-span-2">
+                <label className="mb-1 block font-semibold text-[#334155]">Day / Submodule Title *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Python Setup & Environment Configuration"
+                  value={dayTitle}
+                  onChange={(e) => setDayTitle(e.target.value)}
+                  className="field text-xs w-full"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block font-semibold text-[#334155]">Day Sequence # *</label>
+                <input
+                  type="number"
+                  min={1}
+                  required
+                  placeholder="1, 2, 3..."
+                  value={dayNumber ?? ''}
+                  onChange={(e) => setDayNumber(e.target.value ? Number(e.target.value) : undefined)}
+                  className="field text-xs w-full font-bold"
+                />
+              </div>
+            </div>
+
+            {/* SECTION 1: SUMMARY LINK */}
+            <div className="p-3.5 bg-[#f8fafc] rounded-xl border border-[#e2e8f0] space-y-2">
+              <span className="font-bold text-[#1e293b] flex items-center gap-1.5 text-xs">
+                <Video size={14} className="text-[#3b82f6]" /> Section 1: Summary Link / Documentation URL
+              </span>
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  placeholder="https://docs.python.org/ or documentation/notion link"
+                  value={summaryUrl}
+                  onChange={(e) => setSummaryUrl(e.target.value)}
+                  className="field text-xs flex-1 bg-white"
+                />
+                {summaryUrl && (
+                  <a
+                    href={summaryUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-soft text-xs shrink-0 flex items-center gap-1"
+                  >
+                    <ExternalLink size={12} /> Test
+                  </a>
+                )}
+              </div>
+            </div>
+
+            {/* SECTION 2: MAIN CLASS VIDEO */}
+            <div className="p-3.5 bg-[#f8fafc] rounded-xl border border-[#e2e8f0] space-y-2">
+              <span className="font-bold text-[#1e293b] flex items-center gap-1.5 text-xs">
+                <Video size={14} className="text-[#10b981]" /> Section 2: Main Class Video Link / Embed URL
+              </span>
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  placeholder="https://www.youtube.com/watch?v=... or direct MP4 / Vimeo video URL"
+                  value={dayVideo}
+                  onChange={(e) => setDayVideo(e.target.value)}
+                  className="field text-xs flex-1 bg-white"
+                />
+                {dayVideo && (
+                  <a
+                    href={dayVideo}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-soft text-xs shrink-0 flex items-center gap-1"
+                  >
+                    <ExternalLink size={12} /> Test
+                  </a>
+                )}
+              </div>
+            </div>
+
+            {/* SECTION 3: QUIZ */}
+            <div className="p-3.5 bg-[#f8fafc] rounded-xl border border-[#e2e8f0] space-y-2">
+              <span className="font-bold text-[#1e293b] flex items-center gap-1.5 text-xs">
+                <ListOrdered size={14} className="text-[#8b5cf6]" /> Section 3: Quiz Link / Google Form URL
+              </span>
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  placeholder="https://forms.google.com/... or test / quiz platform URL"
+                  value={quizUrl}
+                  onChange={(e) => setQuizUrl(e.target.value)}
+                  className="field text-xs flex-1 bg-white"
+                />
+                {quizUrl && (
+                  <a
+                    href={quizUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-soft text-xs shrink-0 flex items-center gap-1"
+                  >
+                    <ExternalLink size={12} /> Test
+                  </a>
+                )}
+              </div>
+            </div>
+
+            {/* SECTION 4: ASSIGNMENT */}
+            <div className="p-3.5 bg-[#f8fafc] rounded-xl border border-[#e2e8f0] space-y-2">
+              <span className="font-bold text-[#1e293b] flex items-center gap-1.5 text-xs">
+                <ClipboardCheck size={14} className="text-[#f59e0b]" /> Section 4: Assignment Brief Link
+              </span>
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  placeholder="https://docs.google.com/... or GitHub / project assignment document"
+                  value={assignmentUrl}
+                  onChange={(e) => setAssignmentUrl(e.target.value)}
+                  className="field text-xs flex-1 bg-white"
+                />
+                {assignmentUrl && (
+                  <a
+                    href={assignmentUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-soft text-xs shrink-0 flex items-center gap-1"
+                  >
+                    <ExternalLink size={12} /> Test
+                  </a>
+                )}
+              </div>
+            </div>
+
+            {/* SECTION 5: GOOGLE DRIVE REQUIREMENT */}
+            <div className="p-3 bg-[#ecfdf5] rounded-xl border border-[#a7f3d0] flex items-center justify-between gap-3">
+              <div>
+                <span className="font-bold text-[#065f46] text-xs block">Section 5: Google Drive Link Submission</span>
+                <span className="text-[11px] text-[#047857]">Requires student to submit Word Document link to complete Day {dayNumber || 1}</span>
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer font-bold text-xs text-[#065f46]">
+                <input
+                  type="checkbox"
+                  checked={requireDrive}
+                  onChange={(e) => setRequireDrive(e.target.checked)}
+                  className="rounded text-[#059669]"
+                />
+                <span>Enabled</span>
+              </label>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2 pt-2 border-t border-[#edf0ea]">
+              <button type="button" className="btn btn-soft text-xs" onClick={() => setEditDayModalOpen(false)}>
+                Cancel
+              </button>
+              <button type="submit" disabled={updateDayMutation.isPending} className="btn btn-primary text-xs font-bold">
+                {updateDayMutation.isPending ? 'Saving…' : 'Save Changes'}
               </button>
             </div>
           </form>

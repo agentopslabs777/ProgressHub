@@ -8,6 +8,7 @@ import { LoadingState } from '@/components/common/UIComponents';
 // Auth Pages
 import { LoginPage } from '@/pages/auth/LoginPage';
 import { SetupAdminPage } from '@/pages/auth/SetupAdminPage';
+import { PublicRegisterPage } from '@/pages/auth/PublicRegisterPage';
 
 // Shared / Role-specific Pages
 import { DashboardPage } from '@/pages/DashboardPage';
@@ -95,6 +96,9 @@ export function App() {
         {/* Public / Auth routes */}
         <Route path="/login" component={LoginPage} />
         <Route path="/setup" component={SetupAdminPage} />
+        <Route path="/register" component={PublicRegisterPage} />
+        <Route path="/student-registration" component={PublicRegisterPage} />
+        <Route path="/join" component={PublicRegisterPage} />
 
         {/* Dashboard / Overview */}
         <Route path="/">

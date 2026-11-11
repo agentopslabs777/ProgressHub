@@ -176,7 +176,24 @@ export const studentsApi = {
     body: JSON.stringify(data)
   }),
   block: (id: string) => request<any>(`/students/${id}/block`, { method: 'POST' }),
-  unblock: (id: string) => request<any>(`/students/${id}/unblock`, { method: 'POST' })
+  unblock: (id: string) => request<any>(`/students/${id}/unblock`, { method: 'POST' }),
+  delete: (id: string) => request<any>(`/students/${id}`, { method: 'DELETE' }),
+  publicRegister: (data: any) => request<any>('/students/register', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  }),
+  getApplications: (statusFilter?: string) =>
+    request<any[]>(`/students/applications${statusFilter ? `?status_filter=${statusFilter}` : ''}`),
+  approveApplication: (applicationId: string, data: { program_id?: string; employee_id?: string }) =>
+    request<any>(`/students/applications/${applicationId}/approve`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    }),
+  rejectApplication: (applicationId: string, reason?: string) =>
+    request<any>(`/students/applications/${applicationId}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason })
+    })
 };
 
 // Employees
@@ -234,6 +251,7 @@ export const teamsApi = {
 // Programs & Multi-Resource Curriculum Design
 export const programsApi = {
   list: () => request<any[]>('/programs'),
+  listPublic: () => request<any[]>('/programs/public'),
   create: (data: any) => request<any>('/programs', {
     method: 'POST',
     body: JSON.stringify(data)
@@ -242,6 +260,9 @@ export const programsApi = {
   update: (id: string, data: any) => request<any>(`/programs/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(data)
+  }),
+  delete: (id: string) => request<any>(`/programs/${id}`, {
+    method: 'DELETE'
   }),
   addTrack: (programId: string, data: { name: string; description?: string; position?: number }) => request<any>(`/programs/${programId}/tracks`, {
     method: 'POST',
@@ -369,9 +390,9 @@ export const studentApi = {
     request<any>(`/student/days/${dayId}${studentId ? `?student_id=${studentId}` : ''}`),
   getAssignedStudents: (programId: string) => 
     request<any[]>(`/student/programs/${programId}/assigned-students`),
-  updateActivityProgress: (dayId: string, activity: string, value: boolean) => request<any>(`/student/days/${dayId}/activity`, {
+  updateActivityProgress: (dayId: string, activity: string, value: boolean, score?: number) => request<any>(`/student/days/${dayId}/activity`, {
     method: 'POST',
-    body: JSON.stringify({ activity, value })
+    body: JSON.stringify({ activity, value, score })
   }),
   toggleChecklist: (itemId: string, completed: boolean) => request<any>(`/checklist-completions?item_id=${itemId}&completed=${completed}`, {
     method: 'POST'

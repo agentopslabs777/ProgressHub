@@ -233,13 +233,82 @@ def get_performance_spreadsheet(
 
         rows.append(row)
 
+    # Compute dedicated Day-by-Day student rows for the selected student
+    student_day_rows = []
+    if student_id and enrollments:
+        target_enr = enrollments[0]
+        dp_records = {dp.day_id: dp for dp in db.query(DayProgress).filter(DayProgress.enrollment_id == target_enr.id).all()}
+        drive_subs = {ds.day_id: ds for ds in db.query(GoogleDriveSubmission).filter(GoogleDriveSubmission.enrollment_id == target_enr.id, GoogleDriveSubmission.is_latest == True).all()}
+
+        for d in all_days:
+            day_id = d["id"]
+            day_num = d["day_number"]
+            title = d["title"]
+            dp = dp_records.get(day_id)
+            ds = drive_subs.get(day_id)
+
+            is_comp = dp.is_completed if dp else False
+
+            if is_comp:
+                st = "Completed"
+            elif ds and ds.status in ("submitted", "under_review"):
+                st = "Under Review"
+            else:
+                st = "In Progress"
+
+            if dp and dp.quiz_score is not None:
+                q_marks = f"{dp.quiz_score} / 100"
+            elif dp and dp.quiz_completed:
+                q_marks = "Completed (Score Pending)"
+            else:
+                q_marks = "Not Taken"
+
+            if ds and ds.google_drive_url:
+                asg_link = ds.google_drive_url
+                asg_sub = f"Submitted (Attempt #{ds.attempt_number or 1})"
+            else:
+                asg_link = ""
+                asg_sub = "Not Submitted"
+
+            if ds and ds.reviewed_at:
+                verdict = ds.status.upper() if ds.status else "REVIEWED"
+                rev_text = f"{verdict} (Score: {ds.rating or 0}/100"
+                if ds.additional_reward_points:
+                    rev_text += f", +{ds.additional_reward_points} pts"
+                rev_text += ")"
+                if ds.review_comments:
+                    rev_text += f" - {ds.review_comments}"
+            elif ds:
+                rev_text = "Pending Faculty Review"
+            else:
+                rev_text = "Pending Evaluation"
+
+            student_day_rows.append({
+                "day_id": day_id,
+                "day_number": day_num,
+                "submodule_name": f"Day {day_num}: {title}",
+                "track_name": d["track_name"],
+                "status": st,
+                "quiz_marks": q_marks,
+                "quiz_score": dp.quiz_score if dp else None,
+                "assignment_link": asg_link,
+                "assignment_submitted": asg_sub,
+                "attempt_number": ds.attempt_number if ds else 1,
+                "faculty_review": rev_text,
+                "review_status": ds.status if ds else None,
+                "rating": ds.rating if ds else None,
+                "additional_points": ds.additional_reward_points if ds else 0,
+                "review_comments": ds.review_comments if ds else None
+            })
+
     return {
         "program_id": target_program_id,
         "program_name": program_name,
         "columns": columns,
         "rows": rows,
         "total_rows": len(rows),
-        "enrolled_students": enrolled_students
+        "enrolled_students": enrolled_students,
+        "student_day_rows": student_day_rows
     }
 
 @router.get("/spreadsheet/export")
@@ -264,19 +333,31 @@ def export_performance_csv(
     )
     columns = data["columns"]
     rows = data["rows"]
+    student_day_rows = data.get("student_day_rows", [])
     program_name = data["program_name"].replace(" ", "_")
 
     output = io.StringIO()
     writer = csv.writer(output)
 
-    # Write CSV header
-    headers = [col["label"] for col in columns]
-    writer.writerow(headers)
-
-    # Write rows
-    for r in rows:
-        row_values = [str(r.get(col["key"], "")) for col in columns]
-        writer.writerow(row_values)
+    # If exporting for a specific student, write the dedicated 5-column Day-by-Day worksheet
+    if student_id and student_day_rows:
+        headers = ["Submodule Name", "Status", "Quiz Marks", "Assignment Link", "Faculty Review"]
+        writer.writerow(headers)
+        for r in student_day_rows:
+            writer.writerow([
+                r.get("submodule_name", ""),
+                r.get("status", ""),
+                r.get("quiz_marks", ""),
+                r.get("assignment_link", "") or r.get("assignment_submitted", ""),
+                r.get("faculty_review", "")
+            ])
+    else:
+        # Write general multi-student CSV
+        headers = [col["label"] for col in columns]
+        writer.writerow(headers)
+        for r in rows:
+            row_values = [str(r.get(col["key"], "")) for col in columns]
+            writer.writerow(row_values)
 
     output.seek(0)
     return Response(

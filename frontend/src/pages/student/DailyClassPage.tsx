@@ -6,7 +6,7 @@ import {
   Clock, Download, Sparkles, AlertCircle, ArrowRight, ExternalLink,
   RotateCw, Eye, BookOpen, Layers, Check, ChevronLeft, ChevronRight,
   Send, HelpCircle, ShieldCheck, ListOrdered, ClipboardCheck, Info,
-  Award, Coins, Star, MessageSquare, Edit3
+  Award, Coins, Star, MessageSquare, Edit3, Lock
 } from 'lucide-react';
 import { studentApi, submissionsApi, authApi } from '@/services/api';
 import { PageTitle, StatusBadge, LoadingState, ErrorState } from '@/components/common/UIComponents';
@@ -32,6 +32,7 @@ export function DailyClassPage() {
   // Interactive Quiz state (under Quiz tab)
   const [selectedQuizAnswers, setSelectedQuizAnswers] = useState<{ [qId: number]: number }>({});
   const [quizSubmitted, setQuizSubmitted] = useState(false);
+  const [studentQuizScore, setStudentQuizScore] = useState<number>(85);
 
   // Optimistic local state for checklist items
   const [localChecklist, setLocalChecklist] = useState<any[]>([]);
@@ -85,10 +86,11 @@ export function DailyClassPage() {
   });
 
   const updateActivityMutation = useMutation({
-    mutationFn: ({ activity, value }: { activity: string; value: boolean }) =>
-      studentApi.updateActivityProgress(id, activity, value),
+    mutationFn: ({ activity, value, score }: { activity: string; value: boolean; score?: number }) =>
+      studentApi.updateActivityProgress(id, activity, value, score),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['student_day', id, studentIdParam] });
+      queryClient.invalidateQueries({ queryKey: ['student_program_progress'] });
     }
   });
 
@@ -152,6 +154,12 @@ export function DailyClassPage() {
     }
   }, [day?.google_drive_submission?.id]);
 
+  useEffect(() => {
+    if (day?.activity_progress?.quiz_score !== undefined && day?.activity_progress?.quiz_score !== null) {
+      setStudentQuizScore(day.activity_progress.quiz_score);
+    }
+  }, [day?.activity_progress?.quiz_score]);
+
   const handleToggleChecklist = (item: any) => {
     if (isReviewer) return;
     const newCompleted = !item.completed;
@@ -182,6 +190,40 @@ export function DailyClassPage() {
   const requiredChecklist = checklist.filter((i: any) => i.is_required);
   const completedRequired = requiredChecklist.filter((i: any) => i.completed).length;
   const allRequiredChecklistDone = requiredChecklist.length === 0 || completedRequired === requiredChecklist.length;
+
+  // Gated Progression Logic
+  const isSummaryUnlocked = true;
+  const isSummaryDone = Boolean(activity.summary_viewed || day.is_completed);
+
+  const isVideoUnlocked = Boolean(day.is_completed || isReviewer || isSummaryDone);
+  const isVideoDone = Boolean(activity.video_watched || day.is_completed);
+
+  const isQuizUnlocked = Boolean(day.is_completed || isReviewer || (isVideoUnlocked && isVideoDone));
+  const isQuizDone = Boolean(activity.quiz_completed || day.is_completed);
+
+  const isAssignmentUnlocked = Boolean(day.is_completed || isReviewer || (isQuizUnlocked && isQuizDone));
+  const isAssignmentDone = Boolean(activity.assignment_completed || day.is_completed);
+
+  const isSubmissionUnlocked = Boolean(day.is_completed || isReviewer || (isAssignmentUnlocked && isAssignmentDone));
+  const isSubmissionDone = Boolean(activeDrive || day.is_completed);
+
+  const handleTabClick = (tab: 'summary' | 'video' | 'quiz' | 'assignment' | 'submission') => {
+    if (tab === 'summary') {
+      setActiveTab('summary');
+    } else if (tab === 'video') {
+      if (isVideoUnlocked) setActiveTab('video');
+      else alert('Please complete Section 1: Summary first to unlock Main Class Video.');
+    } else if (tab === 'quiz') {
+      if (isQuizUnlocked) setActiveTab('quiz');
+      else alert('Please complete Section 2: Main Class Video first to unlock Quiz.');
+    } else if (tab === 'assignment') {
+      if (isAssignmentUnlocked) setActiveTab('assignment');
+      else alert('Please complete Section 3: Quiz first to unlock Assignment.');
+    } else if (tab === 'submission') {
+      if (isSubmissionUnlocked) setActiveTab('submission');
+      else alert('Please complete Section 4: Assignment first to unlock Submission Drive Link.');
+    }
+  };
 
   const validateAndSubmitDrive = (e: React.FormEvent) => {
     e.preventDefault();
@@ -275,60 +317,79 @@ export function DailyClassPage() {
       {/* 5 Clearly Defined Sections Navigation Bar */}
       <div className="panel p-1.5 bg-[#edf2ee] border border-[#d8e2d8] rounded-2xl flex flex-wrap gap-1">
         <button
-          onClick={() => setActiveTab('summary')}
+          onClick={() => handleTabClick('summary')}
           className={`flex-1 min-w-[120px] rounded-xl py-2 px-3 text-xs font-bold transition flex items-center justify-center gap-1.5 ${
             activeTab === 'summary' ? 'bg-white text-[#21352d] shadow-xs' : 'text-[#5a6c63] hover:text-[#21352d]'
           }`}
         >
           <BookOpen size={14} /> 1. Summary
+          {isSummaryDone && <CheckCircle2 size={13} className="text-[#16a34a] ml-1 shrink-0" />}
         </button>
 
         <button
-          onClick={() => setActiveTab('video')}
+          onClick={() => handleTabClick('video')}
           className={`flex-1 min-w-[130px] rounded-xl py-2 px-3 text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+            !isVideoUnlocked ? 'opacity-60 text-[#8b9991] bg-transparent' :
             activeTab === 'video' ? 'bg-white text-[#21352d] shadow-xs' : 'text-[#5a6c63] hover:text-[#21352d]'
           }`}
         >
           <Video size={14} /> 2. Main Class Video
+          {!isVideoUnlocked ? (
+            <Lock size={12} className="text-[#8b9991] ml-1 shrink-0" />
+          ) : isVideoDone ? (
+            <CheckCircle2 size={13} className="text-[#16a34a] ml-1 shrink-0" />
+          ) : null}
         </button>
 
         <button
-          onClick={() => setActiveTab('quiz')}
+          onClick={() => handleTabClick('quiz')}
           className={`flex-1 min-w-[120px] rounded-xl py-2 px-3 text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+            !isQuizUnlocked ? 'opacity-60 text-[#8b9991] bg-transparent' :
             activeTab === 'quiz' ? 'bg-white text-[#21352d] shadow-xs' : 'text-[#5a6c63] hover:text-[#21352d]'
           }`}
         >
           <HelpCircle size={14} /> 3. Quiz
+          {!isQuizUnlocked ? (
+            <Lock size={12} className="text-[#8b9991] ml-1 shrink-0" />
+          ) : isQuizDone ? (
+            <CheckCircle2 size={13} className="text-[#16a34a] ml-1 shrink-0" />
+          ) : null}
         </button>
 
         <button
-          onClick={() => setActiveTab('assignment')}
+          onClick={() => handleTabClick('assignment')}
           className={`flex-1 min-w-[130px] rounded-xl py-2 px-3 text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+            !isAssignmentUnlocked ? 'opacity-60 text-[#8b9991] bg-transparent' :
             activeTab === 'assignment' ? 'bg-white text-[#21352d] shadow-xs' : 'text-[#5a6c63] hover:text-[#21352d]'
           }`}
         >
           <CheckSquare size={14} /> 4. Assignment
-          {requiredChecklist.length > 0 && (
-            <span className="text-[10px] opacity-80">({completedRequired}/{requiredChecklist.length})</span>
+          {!isAssignmentUnlocked ? (
+            <Lock size={12} className="text-[#8b9991] ml-1 shrink-0" />
+          ) : isAssignmentDone ? (
+            <CheckCircle2 size={13} className="text-[#16a34a] ml-1 shrink-0" />
+          ) : (
+            requiredChecklist.length > 0 && (
+              <span className="text-[10px] opacity-80">({completedRequired}/{requiredChecklist.length})</span>
+            )
           )}
         </button>
 
         <button
-          onClick={() => setActiveTab('submission')}
+          onClick={() => handleTabClick('submission')}
           className={`flex-1 min-w-[160px] rounded-xl py-2 px-3 text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+            !isSubmissionUnlocked ? 'opacity-60 text-[#8b9991] bg-transparent' :
             activeTab === 'submission'
               ? 'bg-[#255f46] text-white shadow-xs'
               : 'text-[#5a6c63] hover:text-[#21352d]'
           }`}
         >
           <Upload size={14} /> 5. Submission Drive Link
-          {latestDrive && (
-            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ml-1 ${
-              latestDrive.status === 'approved' ? 'bg-[#bce4cc] text-[#13492e]' : 'bg-white/20 text-white'
-            }`}>
-              {latestDrive.status}
-            </span>
-          )}
+          {!isSubmissionUnlocked ? (
+            <Lock size={12} className="text-[#8b9991] ml-1 shrink-0" />
+          ) : isSubmissionDone ? (
+            <CheckCircle2 size={13} className="text-[#86efac] ml-1 shrink-0" />
+          ) : null}
         </button>
       </div>
 
@@ -415,12 +476,26 @@ export function DailyClassPage() {
             )}
           </div>
 
-          <div className="flex justify-end pt-3 border-t border-[#edf1ee]">
+          <div className="flex justify-between items-center pt-3 border-t border-[#edf1ee]">
+            {isSummaryDone ? (
+              <div className="flex items-center gap-1.5 text-xs font-bold text-[#166534] bg-[#e1f5ea] px-3.5 py-2 rounded-xl border border-[#bce4cc]">
+                <CheckCircle2 size={15} /> Summary Completed
+              </div>
+            ) : (
+              <div className="text-xs text-[#6e7e76]">
+                Review the summary curriculum notes above, then mark completed to unlock the video lecture.
+              </div>
+            )}
             <button
-              onClick={() => setActiveTab('video')}
-              className="btn btn-primary text-xs py-2 px-4 flex items-center gap-1.5 font-bold"
+              onClick={() => {
+                if (!isSummaryDone && !isReviewer) {
+                  updateActivityMutation.mutate({ activity: 'summary_viewed', value: true });
+                }
+                setActiveTab('video');
+              }}
+              className="btn btn-primary text-xs py-2 px-5 flex items-center gap-1.5 font-bold shadow-xs"
             >
-              <span>Next: Main Class Video</span>
+              <span>{isSummaryDone ? 'Next: Main Class Video' : 'Mark Summary as Completed & Proceed'}</span>
               <ArrowRight size={14} />
             </button>
           </div>
@@ -429,6 +504,25 @@ export function DailyClassPage() {
 
       {/* SECTION 2: MAIN CLASS VIDEO */}
       {activeTab === 'video' && (
+        !isVideoUnlocked ? (
+          <div className="panel p-10 bg-white border border-[#e4ebe4] text-center space-y-3 rounded-2xl shadow-xs">
+            <div className="w-12 h-12 rounded-full bg-[#f1f5f9] text-[#64748b] flex items-center justify-center mx-auto">
+              <Lock size={24} />
+            </div>
+            <h3 className="text-base font-bold text-[#1e293b]">Section 2: Main Class Video is Locked</h3>
+            <p className="text-xs text-[#64748b] max-w-md mx-auto">
+              Please review and mark Section 1: Daily Learning Summary as completed to unlock today's main video lecture.
+            </p>
+            <div className="pt-2">
+              <button
+                onClick={() => setActiveTab('summary')}
+                className="btn btn-primary text-xs py-2 px-4 font-bold"
+              >
+                ← Go to Section 1: Summary
+              </button>
+            </div>
+          </div>
+        ) : (
         <div className="panel p-6 bg-white border border-[#e4ebe4] space-y-4 rounded-2xl">
           <div className="border-b border-[#edf1ee] pb-3">
             <h2 className="text-base font-bold text-[#23352e]">Section 2: Main Class Video</h2>
@@ -476,19 +570,51 @@ export function DailyClassPage() {
               <ChevronLeft size={14} />
               <span>Back: Summary</span>
             </button>
-            <button
-              onClick={() => setActiveTab('quiz')}
-              className="btn btn-primary text-xs py-2 px-4 flex items-center gap-1.5 font-bold"
-            >
-              <span>Next: Quiz</span>
-              <ArrowRight size={14} />
-            </button>
+            <div className="flex items-center gap-2">
+              {isVideoDone && (
+                <div className="flex items-center gap-1.5 text-xs font-bold text-[#166534] bg-[#e1f5ea] px-3 py-1.5 rounded-lg border border-[#bce4cc]">
+                  <CheckCircle2 size={14} /> Video Completed
+                </div>
+              )}
+              <button
+                onClick={() => {
+                  if (!isVideoDone && !isReviewer) {
+                    updateActivityMutation.mutate({ activity: 'video_watched', value: true });
+                  }
+                  setActiveTab('quiz');
+                }}
+                className="btn btn-primary text-xs py-2 px-5 flex items-center gap-1.5 font-bold shadow-xs"
+              >
+                <span>{isVideoDone ? 'Next: Quiz' : 'Mark Video as Completed & Proceed'}</span>
+                <ArrowRight size={14} />
+              </button>
+            </div>
           </div>
         </div>
+        )
       )}
 
       {/* SECTION 3: QUIZ */}
       {activeTab === 'quiz' && (
+        !isQuizUnlocked ? (
+          <div className="panel p-10 bg-white border border-[#e4ebe4] text-center space-y-3 rounded-2xl shadow-xs">
+            <div className="w-12 h-12 rounded-full bg-[#f1f5f9] text-[#64748b] flex items-center justify-center mx-auto">
+              <Lock size={24} />
+            </div>
+            <h3 className="text-base font-bold text-[#1e293b]">Section 3: Quiz Assessment is Locked</h3>
+            <p className="text-xs text-[#64748b] max-w-md mx-auto">
+              Please watch Section 2: Main Class Video and mark it completed to unlock today's quiz assessment.
+            </p>
+            <div className="pt-2">
+              <button
+                onClick={() => setActiveTab('video')}
+                className="btn btn-primary text-xs py-2 px-4 font-bold"
+              >
+                ← Go to Section 2: Main Class Video
+              </button>
+            </div>
+          </div>
+        ) : (
         <div className="panel p-6 bg-white border border-[#e4ebe4] space-y-6 rounded-2xl">
           <div className="border-b border-[#edf1ee] pb-3 flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -711,6 +837,56 @@ export function DailyClassPage() {
                 </button>
               )}
             </div>
+
+            {/* Dedicated Quiz Score & Completion Form */}
+            <div className="p-4 bg-[#f4faf6] border-2 border-[#86efac] rounded-2xl space-y-3 mt-4">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-[#166534] text-white flex items-center justify-center font-bold text-xs">
+                    <Award size={16} />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-[#14532d]">Record Your Quiz Score to Unlock Assignment</h4>
+                    <p className="text-[11px] text-[#166534]">Enter the score you scored in today's quiz (0 - 100)</p>
+                  </div>
+                </div>
+                {isQuizDone && (
+                  <span className="text-xs font-extrabold text-[#166534] bg-[#dcfce7] px-3 py-1 rounded-full border border-[#86efac] flex items-center gap-1">
+                    <CheckCircle2 size={13} /> Quiz Completed · Score: {activity.quiz_score ?? studentQuizScore}/100
+                  </span>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3 pt-1">
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-bold text-[#1f3529] whitespace-nowrap">Quiz Score (0 - 100) *:</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={studentQuizScore}
+                    onChange={(e) => setStudentQuizScore(Number(e.target.value))}
+                    className="field text-xs py-1.5 w-24 font-bold text-center text-[#166534] border-[#86efac] bg-white"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    updateActivityMutation.mutate({
+                      activity: 'quiz_completed',
+                      value: true,
+                      score: Number(studentQuizScore)
+                    });
+                    setActiveTab('assignment');
+                  }}
+                  className="btn btn-primary text-xs py-2 px-5 font-bold shadow-xs flex items-center gap-1.5"
+                >
+                  <Award size={14} />
+                  <span>{isQuizDone ? 'Update Score & Proceed to Assignment' : 'Save Score & Mark Quiz Completed'}</span>
+                  <ArrowRight size={14} />
+                </button>
+              </div>
+            </div>
           </div>
 
           <div className="flex justify-between items-center pt-3 border-t border-[#edf1ee]">
@@ -721,19 +897,55 @@ export function DailyClassPage() {
               <ChevronLeft size={14} />
               <span>Back: Main Class Video</span>
             </button>
-            <button
-              onClick={() => setActiveTab('assignment')}
-              className="btn btn-primary text-xs py-2 px-4 flex items-center gap-1.5 font-bold"
-            >
-              <span>Next: Assignment</span>
-              <ArrowRight size={14} />
-            </button>
+            <div className="flex items-center gap-2">
+              {isQuizDone && (
+                <div className="flex items-center gap-1.5 text-xs font-bold text-[#166534] bg-[#e1f5ea] px-3 py-1.5 rounded-lg border border-[#bce4cc]">
+                  <CheckCircle2 size={14} /> Quiz Completed ({activity.quiz_score ?? studentQuizScore}/100)
+                </div>
+              )}
+              <button
+                onClick={() => {
+                  if (!isQuizDone && !isReviewer) {
+                    updateActivityMutation.mutate({
+                      activity: 'quiz_completed',
+                      value: true,
+                      score: Number(studentQuizScore)
+                    });
+                  }
+                  setActiveTab('assignment');
+                }}
+                className="btn btn-primary text-xs py-2 px-5 flex items-center gap-1.5 font-bold shadow-xs"
+              >
+                <span>{isQuizDone ? 'Next: Assignment' : 'Mark Quiz Completed & Proceed'}</span>
+                <ArrowRight size={14} />
+              </button>
+            </div>
           </div>
         </div>
+        )
       )}
 
       {/* SECTION 4: ASSIGNMENT */}
       {activeTab === 'assignment' && (
+        !isAssignmentUnlocked ? (
+          <div className="panel p-10 bg-white border border-[#e4ebe4] text-center space-y-3 rounded-2xl shadow-xs">
+            <div className="w-12 h-12 rounded-full bg-[#f1f5f9] text-[#64748b] flex items-center justify-center mx-auto">
+              <Lock size={24} />
+            </div>
+            <h3 className="text-base font-bold text-[#1e293b]">Section 4: Assignment is Locked</h3>
+            <p className="text-xs text-[#64748b] max-w-md mx-auto">
+              Please complete Section 3: Quiz and save your quiz score to unlock the practical daily assignment.
+            </p>
+            <div className="pt-2">
+              <button
+                onClick={() => setActiveTab('quiz')}
+                className="btn btn-primary text-xs py-2 px-4 font-bold"
+              >
+                ← Go to Section 3: Quiz
+              </button>
+            </div>
+          </div>
+        ) : (
         <div className="panel p-6 bg-white border border-[#e4ebe4] space-y-5 rounded-2xl">
           <div className="border-b border-[#edf1ee] pb-3 flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -888,19 +1100,51 @@ export function DailyClassPage() {
               <ChevronLeft size={14} />
               <span>Back: Quiz</span>
             </button>
-            <button
-              onClick={() => setActiveTab('submission')}
-              className="btn btn-primary text-xs py-2 px-4 flex items-center gap-1.5 font-bold"
-            >
-              <span>Next: Submission Drive Link</span>
-              <ArrowRight size={14} />
-            </button>
+            <div className="flex items-center gap-2">
+              {isAssignmentDone && (
+                <div className="flex items-center gap-1.5 text-xs font-bold text-[#166534] bg-[#e1f5ea] px-3 py-1.5 rounded-lg border border-[#bce4cc]">
+                  <CheckCircle2 size={14} /> Assignment Completed
+                </div>
+              )}
+              <button
+                onClick={() => {
+                  if (!isAssignmentDone && !isReviewer) {
+                    updateActivityMutation.mutate({ activity: 'assignment_completed', value: true });
+                  }
+                  setActiveTab('submission');
+                }}
+                className="btn btn-primary text-xs py-2 px-5 flex items-center gap-1.5 font-bold shadow-xs"
+              >
+                <span>{isAssignmentDone ? 'Next: Submission Drive Link' : 'Mark Assignment Completed & Proceed'}</span>
+                <ArrowRight size={14} />
+              </button>
+            </div>
           </div>
         </div>
+        )
       )}
 
       {/* SECTION 5: SUBMISSION DRIVE LINK */}
       {activeTab === 'submission' && (
+        !isSubmissionUnlocked ? (
+          <div className="panel p-10 bg-white border border-[#e4ebe4] text-center space-y-3 rounded-2xl shadow-xs">
+            <div className="w-12 h-12 rounded-full bg-[#f1f5f9] text-[#64748b] flex items-center justify-center mx-auto">
+              <Lock size={24} />
+            </div>
+            <h3 className="text-base font-bold text-[#1e293b]">Section 5: Submission Drive Link is Locked</h3>
+            <p className="text-xs text-[#64748b] max-w-md mx-auto">
+              Please complete Section 4: Assignment first to unlock the Google Drive submission form.
+            </p>
+            <div className="pt-2">
+              <button
+                onClick={() => setActiveTab('assignment')}
+                className="btn btn-primary text-xs py-2 px-4 font-bold"
+              >
+                ← Go to Section 4: Assignment
+              </button>
+            </div>
+          </div>
+        ) : (
         <div className="space-y-6">
           {/* Section 5 Header with Rewards summary */}
           <div className="panel p-6 bg-white border border-[#e4ebe4] space-y-4 rounded-2xl">
@@ -1383,6 +1627,7 @@ export function DailyClassPage() {
             )}
           </div>
         </div>
+        )
       )}
     </div>
   );

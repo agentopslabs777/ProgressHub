@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import {
   Plus, BookOpen, ChevronRight, Layers, CheckCircle, Edit,
-  Sparkles, Gift, Coins, Tag, RefreshCw
+  Sparkles, Gift, Coins, Tag, RefreshCw, Trash2
 } from 'lucide-react';
 import { programsApi } from '@/services/api';
 import { PageTitle, StatusBadge, EmptyState, LoadingState, ErrorState, Modal } from '@/components/common/UIComponents';
@@ -13,6 +13,9 @@ export function ProgramsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [selectedProgram, setSelectedProgram] = useState<any>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [programToDelete, setProgramToDelete] = useState<any>(null);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'published' | 'draft'>('all');
 
   // Form states
   const [name, setName] = useState('');
@@ -53,6 +56,18 @@ export function ProgramsPage() {
       resetForm();
     },
     onError: (err: any) => setFormError(err.message || 'Failed to update program')
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => programsApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['programs'] });
+      queryClient.invalidateQueries({ queryKey: ['purchasable_programs'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      setDeleteConfirmOpen(false);
+      setProgramToDelete(null);
+    },
+    onError: (err: any) => alert(err?.message || 'Failed to delete course program')
   });
 
   const resetForm = () => {
@@ -105,6 +120,49 @@ export function ProgramsPage() {
         }
       />
 
+      {/* Filter Tabs for Active vs Draft Sessions */}
+      <div className="flex items-center gap-1.5 border-b border-[#e2e8e2] pb-1">
+        <button
+          onClick={() => setStatusFilter('all')}
+          className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+            statusFilter === 'all'
+              ? 'bg-[#275947] text-white shadow-xs'
+              : 'text-[#64748b] hover:text-[#1e293b] hover:bg-[#f1f5f9]'
+          }`}
+        >
+          <span>All Courses</span>
+          <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${statusFilter === 'all' ? 'bg-white/20 text-white' : 'bg-[#e2e8f0] text-[#475569]'}`}>
+            {programs.length}
+          </span>
+        </button>
+        <button
+          onClick={() => setStatusFilter('published')}
+          className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+            statusFilter === 'published'
+              ? 'bg-[#059669] text-white shadow-xs'
+              : 'text-[#64748b] hover:text-[#1e293b] hover:bg-[#f1f5f9]'
+          }`}
+        >
+          <span>Active / Published</span>
+          <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${statusFilter === 'published' ? 'bg-white/20 text-white' : 'bg-[#e2e8f0] text-[#475569]'}`}>
+            {programs.filter((p: any) => p.status?.toLowerCase() === 'published').length}
+          </span>
+        </button>
+        <button
+          onClick={() => setStatusFilter('draft')}
+          className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+            statusFilter === 'draft'
+              ? 'bg-[#d97706] text-white shadow-xs'
+              : 'text-[#64748b] hover:text-[#1e293b] hover:bg-[#f1f5f9]'
+          }`}
+        >
+          <span>Draft Sessions</span>
+          <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${statusFilter === 'draft' ? 'bg-white/20 text-white' : 'bg-[#e2e8f0] text-[#475569]'}`}>
+            {programs.filter((p: any) => p.status?.toLowerCase() === 'draft').length}
+          </span>
+        </button>
+      </div>
+
       <div className="panel overflow-hidden bg-white border border-[#e2e8e2] rounded-2xl shadow-sm">
         {isLoading ? (
           <LoadingState label="Loading training programs..." />
@@ -139,7 +197,12 @@ export function ProgramsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#edf0ea]">
-                {programs.map((p: any) => (
+                {programs
+                  .filter((p: any) => {
+                    if (statusFilter === 'all') return true;
+                    return p.status?.toLowerCase() === statusFilter;
+                  })
+                  .map((p: any) => (
                   <tr key={p.id} className="hover:bg-[#fafbf9] transition">
                     <td className="px-5 py-3.5">
                       <Link href={`/programs/${p.id}`} className="font-bold text-[#275947] hover:underline text-xs">
@@ -194,20 +257,30 @@ export function ProgramsPage() {
                         )}
                       </div>
                     </td>
-                    <td className="px-5 py-3.5 text-right space-x-2">
+                    <td className="px-5 py-3.5 text-right space-x-1.5 whitespace-nowrap">
                       <button
                         onClick={() => handleOpenEdit(p)}
                         className="inline-flex items-center gap-1 text-[11px] font-bold text-[#1e293b] hover:text-[#059669] px-2 py-1 rounded bg-[#f1f5f9] hover:bg-[#e2e8f0] transition"
                         title="Edit Course Amount & Settings"
                       >
-                        <Edit size={12} /> Edit Amount
+                        <Edit size={12} /> Edit
                       </button>
                       <Link
                         href={`/programs/${p.id}`}
-                        className="inline-flex items-center gap-1 text-[11px] font-bold text-[#295c4a] hover:underline"
+                        className="inline-flex items-center gap-1 text-[11px] font-bold text-[#295c4a] hover:underline px-2 py-1"
                       >
                         Curriculum <ChevronRight size={13} />
                       </Link>
+                      <button
+                        onClick={() => {
+                          setProgramToDelete(p);
+                          setDeleteConfirmOpen(true);
+                        }}
+                        className="inline-flex items-center gap-1 text-[11px] font-bold text-red-600 hover:text-red-700 px-2 py-1 rounded bg-red-50 hover:bg-red-100 transition"
+                        title="Delete Course Program"
+                      >
+                        <Trash2 size={12} /> Delete
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -483,6 +556,41 @@ export function ProgramsPage() {
               </button>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {/* DELETE PROGRAM CONFIRMATION MODAL */}
+      {deleteConfirmOpen && programToDelete && (
+        <Modal title="Delete Course Program" onClose={() => setDeleteConfirmOpen(false)}>
+          <div className="space-y-4 text-xs">
+            <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-900 space-y-2">
+              <h4 className="font-bold text-sm">Are you sure you want to permanently delete this course?</h4>
+              <p className="text-xs text-red-700 leading-relaxed">
+                Course: <strong className="font-bold">{programToDelete.name}</strong> ({programToDelete.code})
+              </p>
+              <p className="text-[11px] text-red-600">
+                This action will permanently delete this course program, its modules/tracks, learning days, and student records in both active and draft sessions. This action cannot be undone.
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-[#edf0ea]">
+              <button
+                type="button"
+                className="btn btn-soft text-xs font-semibold"
+                onClick={() => setDeleteConfirmOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deleteMutation.isPending}
+                onClick={() => deleteMutation.mutate(programToDelete.id)}
+                className="btn text-xs bg-red-600 hover:bg-red-700 text-white font-bold"
+              >
+                {deleteMutation.isPending ? 'Deleting…' : 'Yes, Delete Course'}
+              </button>
+            </div>
+          </div>
         </Modal>
       )}
     </div>

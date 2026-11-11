@@ -574,3 +574,30 @@ class RazorpaySetting(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
+
+class StudentApplication(Base):
+    __tablename__ = "student_applications"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    full_name = Column(String(255), nullable=False)
+    contact_number = Column(String(50), nullable=True)
+    email = Column(String(255), nullable=False, index=True)
+    password_hash = Column(String(255), nullable=False)
+    payment_id = Column(String(255), nullable=True)
+    program_id = Column(String(36), ForeignKey("programs.id", ondelete="SET NULL"), nullable=True)
+    status = Column(String(50), default="pending", nullable=False)  # 'pending', 'approved', 'rejected'
+    notes = Column(Text, nullable=True)
+    rejection_reason = Column(Text, nullable=True)
+    reviewed_by = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
+    created_student_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_enrollment_id = Column(String(36), ForeignKey("enrollments.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    program = relationship("Program")
+    reviewer = relationship("User", foreign_keys=[reviewed_by])
+    created_student = relationship("User", foreign_keys=[created_student_id])
+    created_enrollment = relationship("Enrollment", foreign_keys=[created_enrollment_id])
+
+

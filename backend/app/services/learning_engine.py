@@ -119,6 +119,9 @@ def get_track_days_status(db: Session, enrollment: Enrollment, track: LearningTr
                 "english_summary_viewed": prog.english_summary_viewed if prog else False,
                 "video_watched": prog.video_watched if prog else False,
                 "flashcards_completed": prog.flashcards_completed if prog else False,
+                "quiz_completed": prog.quiz_completed if prog else False,
+                "quiz_score": prog.quiz_score if prog else None,
+                "assignment_completed": prog.assignment_completed if prog else False,
             }
         })
 

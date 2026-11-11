@@ -3,7 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   GraduationCap, Search, CheckCircle2, Clock, ExternalLink,
   Award, MessageSquare, AlertCircle, ChevronRight, BookOpen,
-  Sparkles, Check, RefreshCw, Send, FileText, CheckSquare
+  Sparkles, Check, RefreshCw, Send, FileText, CheckSquare,
+  FileSpreadsheet, Lock, Edit3
 } from 'lucide-react';
 import { enrollmentsApi, studentApi, submissionsApi } from '@/services/api';
 import { PageTitle, StatusBadge, LoadingState, ErrorState, EmptyState } from '@/components/common/UIComponents';
@@ -13,6 +14,7 @@ export function MyStudentsPage() {
   const [search, setSearch] = useState('');
   const [selectedEnrollmentId, setSelectedEnrollmentId] = useState<string | null>(null);
   const [selectedDayId, setSelectedDayId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'spreadsheet' | 'detail'>('spreadsheet');
 
   // Review form states
   const [reviewStatus, setReviewStatus] = useState<'approved' | 'changes_requested' | 'rejected'>('approved');
@@ -277,6 +279,282 @@ export function MyStudentsPage() {
                   </div>
                 </div>
 
+                {/* VIEW MODE TOGGLE */}
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#e2e8e2] pb-2.5">
+                  <div className="flex items-center gap-1.5 p-1 bg-[#eef3ef] rounded-xl border border-[#d6e3da] text-xs font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('spreadsheet')}
+                      className={`rounded-lg px-3.5 py-1.5 font-bold transition flex items-center gap-1.5 ${
+                        viewMode === 'spreadsheet' ? 'bg-[#255e46] text-white shadow-xs' : 'text-[#5a6e63] hover:text-[#21352d]'
+                      }`}
+                    >
+                      <FileSpreadsheet size={14} /> Spreadsheet View (5 Columns)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('detail')}
+                      className={`rounded-lg px-3.5 py-1.5 font-bold transition flex items-center gap-1.5 ${
+                        viewMode === 'detail' ? 'bg-[#255e46] text-white shadow-xs' : 'text-[#5a6e63] hover:text-[#21352d]'
+                      }`}
+                    >
+                      <BookOpen size={14} /> Day Review & Grading Form
+                    </button>
+                  </div>
+                  <span className="text-[11px] text-[#697c72]">
+                    {viewMode === 'spreadsheet'
+                      ? 'Displaying 5-Column Day Worksheet: Submodule Name | Status | Quiz Marks | Assignment Link | Faculty Review'
+                      : 'Select and evaluate a learning day with detailed checklist & scoring'}
+                  </span>
+                </div>
+
+                {/* 1. SPREADSHEET 5-COLUMN VIEW */}
+                {viewMode === 'spreadsheet' ? (
+                  <div className="panel overflow-hidden bg-white border border-[#e4ebe4]">
+                    <div className="p-3.5 bg-[#f4f7f4] border-b border-[#d8e2d9] flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <h4 className="text-xs font-bold text-[#1d2f26] flex items-center gap-1.5">
+                          <FileSpreadsheet size={15} className="text-[#285d47]" />
+                          Student Curriculum Worksheet · {currentEnrollment.studentName}
+                        </h4>
+                        <span className="text-[11px] text-[#63766d]">
+                          Submodule Name · Status · Quiz Marks · Assignment Link · Faculty Review
+                        </span>
+                      </div>
+                      <span className="text-[11px] font-semibold text-[#285d47] bg-[#e5f4eb] px-2.5 py-1 rounded-full border border-[#bde4ce]">
+                        {allDays.length} Submodules / Days
+                      </span>
+                    </div>
+
+                    {isCurriculumLoading ? (
+                      <div className="p-12">
+                        <LoadingState label="Loading student curriculum progress and evaluation records..." />
+                      </div>
+                    ) : allDays.length === 0 ? (
+                      <div className="p-10 text-center text-xs text-[#6e7e76]">
+                        No curriculum days configured yet for this student's enrolled program.
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto max-h-[650px] overflow-y-auto">
+                        <table className="w-full text-left text-xs border-collapse min-w-[950px]">
+                          <thead className="sticky top-0 bg-[#eef4f0] z-10 border-b border-[#cbdad0]">
+                            <tr>
+                              <th className="px-4 py-3 font-bold text-[#23352e] border-r border-[#d4e3d8] w-[26%]">
+                                Submodule Name
+                              </th>
+                              <th className="px-4 py-3 font-bold text-[#23352e] border-r border-[#d4e3d8] w-[14%] text-center">
+                                Status
+                              </th>
+                              <th className="px-4 py-3 font-bold text-[#23352e] border-r border-[#d4e3d8] w-[16%] text-center">
+                                Quiz (Marks)
+                              </th>
+                              <th className="px-4 py-3 font-bold text-[#23352e] border-r border-[#d4e3d8] w-[22%]">
+                                Assignment (Link Submitted or Not)
+                              </th>
+                              <th className="px-4 py-3 font-bold text-[#23352e] w-[22%]">
+                                Faculty Review
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[#ebf1eb]">
+                            {allDays.map((d: any) => {
+                              const sub = d.google_drive_submission;
+                              const prog = d.activity_progress || {};
+                              const isCompleted = d.completed || d.is_completed;
+                              const isUnlocked = d.is_unlocked;
+
+                              // 1. Status badge
+                              let statusBadge;
+                              if (isCompleted) {
+                                statusBadge = (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-[#166534] bg-[#dcfce7] px-2.5 py-1 rounded-full border border-[#86efac]">
+                                    <CheckCircle2 size={12} /> Completed
+                                  </span>
+                                );
+                              } else if (sub && (sub.status === 'submitted' || sub.status === 'under_review')) {
+                                statusBadge = (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-[#854d0e] bg-[#fef9c3] px-2.5 py-1 rounded-full border border-[#fde047]">
+                                    <Clock size={12} /> Under Review
+                                  </span>
+                                );
+                              } else if (d.status === 'locked' || !isUnlocked) {
+                                statusBadge = (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#64748b] bg-[#f1f5f9] px-2.5 py-1 rounded-full border border-[#cbd5e1]">
+                                    <Lock size={12} /> Locked
+                                  </span>
+                                );
+                              } else {
+                                statusBadge = (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#1e40af] bg-[#dbeafe] px-2.5 py-1 rounded-full border border-[#93c5fd]">
+                                    <Clock size={12} /> In Progress
+                                  </span>
+                                );
+                              }
+
+                              // 2. Quiz Marks
+                              let quizContent;
+                              if (prog.quiz_score !== null && prog.quiz_score !== undefined) {
+                                quizContent = (
+                                  <div className="inline-flex items-center gap-1.5">
+                                    <span className="font-extrabold text-xs text-[#0f172a] bg-[#f1f5f9] px-2.5 py-1 rounded-md border border-[#cbd5e1]">
+                                      {prog.quiz_score} / 100
+                                    </span>
+                                    <span className="text-[10px] font-bold text-[#166534] bg-[#dcfce7] px-1.5 py-0.5 rounded border border-[#86efac]">
+                                      Recorded
+                                    </span>
+                                  </div>
+                                );
+                              } else if (prog.quiz_completed) {
+                                quizContent = (
+                                  <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                                    Completed
+                                  </span>
+                                );
+                              } else {
+                                quizContent = <span className="text-xs text-slate-400 font-medium italic">Pending / Not Taken</span>;
+                              }
+
+                              // 3. Assignment link submitted or not
+                              const driveUrl = sub?.google_drive_url || sub?.drive_url;
+                              let assignmentContent;
+                              if (driveUrl) {
+                                assignmentContent = (
+                                  <div className="space-y-1.5">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-[#065f46] bg-[#ecfdf5] px-2 py-0.5 rounded border border-[#a7f3d0]">
+                                        <Check size={11} /> Submitted (Attempt #{sub.attempt_number || 1})
+                                      </span>
+                                    </div>
+                                    <div>
+                                      <a
+                                        href={driveUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1 text-xs font-bold text-[#0047ba] hover:underline bg-[#eff6ff] hover:bg-[#dbeafe] px-2.5 py-1 rounded-md border border-[#bfdbfe] transition"
+                                        title="Open uploaded assignment document in Google Drive"
+                                      >
+                                        <ExternalLink size={12} /> Open Document
+                                      </a>
+                                    </div>
+                                  </div>
+                                );
+                              } else {
+                                assignmentContent = <span className="text-xs text-slate-400 font-medium italic">Not Submitted</span>;
+                              }
+
+                              // 4. Faculty Review
+                              let reviewContent;
+                              if (sub && sub.reviewed_at) {
+                                reviewContent = (
+                                  <div className="space-y-1.5">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
+                                        sub.status === 'approved'
+                                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                          : sub.status === 'changes_requested'
+                                          ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                          : 'bg-rose-50 text-rose-700 border-rose-200'
+                                      }`}>
+                                        {sub.status === 'approved' ? 'Approved ✅' : sub.status === 'changes_requested' ? 'Changes Requested ⚠️' : 'Rejected ❌'}
+                                      </span>
+                                      <span className="text-xs font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                                        Score: {sub.rating || 0}/100
+                                      </span>
+                                      {sub.additional_reward_points > 0 && (
+                                        <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                                          +{sub.additional_reward_points} pts
+                                        </span>
+                                      )}
+                                    </div>
+                                    {sub.review_comments && (
+                                      <p className="text-xs text-[#334155] bg-[#f8fafc] p-1.5 rounded border border-slate-200 italic line-clamp-2">
+                                        "{sub.review_comments}"
+                                      </p>
+                                    )}
+                                    <div>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setSelectedDayId(d.id);
+                                          setViewMode('detail');
+                                        }}
+                                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#285d47] hover:underline bg-[#edf6f1] px-2 py-0.5 rounded border border-[#cbe0d3] transition"
+                                      >
+                                        <Edit3 size={11} /> Update Review
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              } else if (sub) {
+                                reviewContent = (
+                                  <div className="space-y-1.5">
+                                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200">
+                                      <Clock size={12} /> Awaiting Faculty Review
+                                    </span>
+                                    <div>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setSelectedDayId(d.id);
+                                          setViewMode('detail');
+                                        }}
+                                        className="inline-flex items-center gap-1 text-[11px] font-bold text-[#285d47] hover:underline bg-[#edf6f1] px-2.5 py-1 rounded border border-[#cbe0d3] transition"
+                                      >
+                                        <Award size={12} /> Grade / Review Now
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              } else {
+                                reviewContent = (
+                                  <div className="space-y-1">
+                                    <span className="text-xs text-slate-400 font-medium italic block">Pending Evaluation</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedDayId(d.id);
+                                        setViewMode('detail');
+                                      }}
+                                      className="inline-flex items-center gap-1 text-[10px] text-[#526a5d] hover:text-[#285d47] transition"
+                                    >
+                                      <BookOpen size={10} /> View Day Details
+                                    </button>
+                                  </div>
+                                );
+                              }
+
+                              return (
+                                <tr key={d.id} className="hover:bg-[#f9fbf9] transition">
+                                  <td className="px-4 py-3.5 border-r border-[#ebf1eb]">
+                                    <span className="font-bold text-xs text-[#1e293b] block">
+                                      Day {d.day_number || d.dayNumber}: {d.title}
+                                    </span>
+                                    <span className="text-[11px] text-[#64748b] block mt-0.5">
+                                      {d.trackName}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3.5 border-r border-[#ebf1eb] text-center">
+                                    {statusBadge}
+                                  </td>
+                                  <td className="px-4 py-3.5 border-r border-[#ebf1eb] text-center">
+                                    {quizContent}
+                                  </td>
+                                  <td className="px-4 py-3.5 border-r border-[#ebf1eb]">
+                                    {assignmentContent}
+                                  </td>
+                                  <td className="px-4 py-3.5">
+                                    {reviewContent}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <>
                 {/* Day Selector Pills */}
                 <div className="panel p-3 bg-white border border-[#e2e8e2] shadow-sm">
                   <div className="text-[11px] font-bold uppercase tracking-wider text-[#708278] mb-2 px-1">
@@ -633,6 +911,8 @@ export function MyStudentsPage() {
                   <div className="panel p-8 bg-white text-center text-xs text-[#718279]">
                     Select a learning day above to inspect and evaluate student progress.
                   </div>
+                )}
+                  </>
                 )}
               </>
             ) : (

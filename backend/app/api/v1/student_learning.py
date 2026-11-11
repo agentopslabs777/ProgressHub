@@ -20,8 +20,9 @@ from backend.app.services.learning_engine import (
 router = APIRouter(prefix="/student", tags=["Student Learning"])
 
 class ActivityUpdateInput(BaseModel):
-    activity: str  # 'summary_viewed', 'telugu_summary_viewed', 'english_summary_viewed', 'video_watched', 'flashcards_completed'
+    activity: str  # 'summary_viewed', 'video_watched', 'quiz_completed', 'assignment_completed', etc.
     value: bool = True
+    score: Optional[int] = None
 
 @router.get("/programs", response_model=List[dict])
 def get_student_programs(
@@ -158,6 +159,29 @@ def get_student_program_progress(
         completed_days = sum(1 for d in days_status if d["is_completed"])
         track_progress = int((completed_days / total_days) * 100) if total_days > 0 else 0
 
+        day_ids = [d["day"].id for d in days_status]
+        drive_subs = db.query(GoogleDriveSubmission).filter(
+            GoogleDriveSubmission.enrollment_id == enrollment.id,
+            GoogleDriveSubmission.day_id.in_(day_ids)
+        ).order_by(GoogleDriveSubmission.attempt_number.desc()).all()
+        drive_by_day = {}
+        for s in drive_subs:
+            if s.day_id not in drive_by_day:
+                drive_by_day[s.day_id] = {
+                    "id": s.id,
+                    "google_drive_url": s.google_drive_url,
+                    "drive_url": s.google_drive_url,
+                    "notes": s.notes,
+                    "attempt_number": s.attempt_number,
+                    "status": s.status,
+                    "review_comments": s.review_comments,
+                    "rating": s.rating,
+                    "base_reward_points": s.base_reward_points,
+                    "additional_reward_points": s.additional_reward_points,
+                    "submitted_at": s.submitted_at.isoformat() if s.submitted_at else None,
+                    "reviewed_at": s.reviewed_at.isoformat() if s.reviewed_at else None,
+                }
+
         results.append({
             "trackId": track.id,
             "track_id": track.id,
@@ -195,7 +219,8 @@ def get_student_program_progress(
                 "unlocked_by_name": d["unlocked_by_name"],
                 "unlock_reason": d["unlock_reason"],
                 "pending_reasons": d["pending_reasons"],
-                "activity_progress": d["progress"]
+                "activity_progress": d["progress"],
+                "google_drive_submission": drive_by_day.get(d["day"].id)
             } for d in days_status]
         })
     return results
@@ -210,14 +235,14 @@ def get_student_day_details(
     target_student_id = current_user.id
     if student_id and current_user.role in ["employee", "admin"]:
         target_student_id = student_id
-
-    day = db.query(LearningDay).filter(LearningDay.id == day_id).first()
-    if not day:
-        raise HTTPException(status_code=404, detail="Learning day not found")
-
-    track = db.query(LearningTrack).filter(LearningTrack.id == day.track_id).first()
-    if not track:
-        raise HTTPException(status_code=404, detail="Learning track not found")
+    elif current_user.role in ["employee", "admin"] and not student_id:
+        # Auto-pick the first active enrolled student in this program so admin can review
+        first_enrollment = db.query(Enrollment).filter(
+            Enrollment.program_id == track.program_id,
+            Enrollment.status == "active"
+        ).first()
+        if first_enrollment:
+            target_student_id = first_enrollment.student_id
 
     enrollment = db.query(Enrollment).filter(
         Enrollment.student_id == target_student_id,
@@ -226,13 +251,17 @@ def get_student_day_details(
     ).first()
 
     if not enrollment:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Student is not actively enrolled in this program"
-        )
+        if current_user.role == "admin":
+            # Admin preview mode when no active enrollment is found
+            enrollment = None
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Student is not actively enrolled in this program"
+            )
 
     # Permission check for employee
-    if current_user.role == "employee" and enrollment.employee_id != current_user.id:
+    if current_user.role == "employee" and enrollment and enrollment.employee_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You are not authorized to view this student's learning session"
@@ -244,11 +273,13 @@ def get_student_day_details(
         ChecklistTemplateItem.active == True
     ).order_by(ChecklistTemplateItem.display_order.asc()).all()
 
-    completions = db.query(ChecklistCompletion).filter(
-        ChecklistCompletion.enrollment_id == enrollment.id,
-        ChecklistCompletion.completed == True
-    ).all()
-    completed_ids = {c.item_id for c in completions}
+    completed_ids = set()
+    if enrollment:
+        completions = db.query(ChecklistCompletion).filter(
+            ChecklistCompletion.enrollment_id == enrollment.id,
+            ChecklistCompletion.completed == True
+        ).all()
+        completed_ids = {c.item_id for c in completions}
 
     checklist_data = [{
         "id": it.id,
@@ -264,10 +295,12 @@ def get_student_day_details(
     tasks = db.query(DailyTask).filter(DailyTask.day_id == day.id).all()
     tasks_data = []
     for t in tasks:
-        sub = db.query(TaskSubmission).filter(
-            TaskSubmission.enrollment_id == enrollment.id,
-            TaskSubmission.task_id == t.id
-        ).order_by(TaskSubmission.submitted_at.desc()).first()
+        sub = None
+        if enrollment:
+            sub = db.query(TaskSubmission).filter(
+                TaskSubmission.enrollment_id == enrollment.id,
+                TaskSubmission.task_id == t.id
+            ).order_by(TaskSubmission.submitted_at.desc()).first()
 
         tasks_data.append({
             "id": t.id,
@@ -299,10 +332,12 @@ def get_student_day_details(
     ).order_by(Flashcard.display_order.asc()).all()
 
     # Fetch student's latest Google Drive submission & history
-    drive_subs = db.query(GoogleDriveSubmission).filter(
-        GoogleDriveSubmission.enrollment_id == enrollment.id,
-        GoogleDriveSubmission.day_id == day.id
-    ).order_by(GoogleDriveSubmission.attempt_number.desc()).all()
+    drive_subs = []
+    if enrollment:
+        drive_subs = db.query(GoogleDriveSubmission).filter(
+            GoogleDriveSubmission.enrollment_id == enrollment.id,
+            GoogleDriveSubmission.day_id == day.id
+        ).order_by(GoogleDriveSubmission.attempt_number.desc()).all()
 
     latest_drive = drive_subs[0] if drive_subs else None
     drive_history = [{
@@ -323,20 +358,25 @@ def get_student_day_details(
     } for s in drive_subs]
 
     # Day completion & activity progress
-    progress = db.query(DayProgress).filter(
-        DayProgress.enrollment_id == enrollment.id,
-        DayProgress.day_id == day.id
-    ).first()
-
-    # Automatically evaluate day completion if not already marked completed
-    if not progress or not progress.is_completed:
-        check_and_update_day_progress(db, enrollment, day, current_user)
+    progress = None
+    if enrollment:
         progress = db.query(DayProgress).filter(
             DayProgress.enrollment_id == enrollment.id,
             DayProgress.day_id == day.id
         ).first()
 
-    _, pending_reasons = evaluate_day_completion(db, enrollment, day)
+        # Automatically evaluate day completion if not already marked completed
+        if not progress or not progress.is_completed:
+            check_and_update_day_progress(db, enrollment, day, current_user)
+            progress = db.query(DayProgress).filter(
+                DayProgress.enrollment_id == enrollment.id,
+                DayProgress.day_id == day.id
+            ).first()
+
+    pending_reasons = []
+    if enrollment:
+        _, pending_reasons = evaluate_day_completion(db, enrollment, day)
+
 
     target_user = db.query(User).filter(User.id == target_student_id).first()
 
@@ -368,11 +408,11 @@ def get_student_day_details(
         } if next_day else None,
         "description": day.description,
         "content": day.content,
-        "video_url": day.video_url,
+        "video_url": day.video_url or day.summary_video_url,
         "summary_main": day.summary_main,
         "summary_telugu": day.summary_telugu,
         "summary_english": day.summary_english,
-        "summary_video_url": day.summary_video_url,
+        "summary_video_url": day.summary_video_url or day.video_url,
         "summary_url": day.summary_url,
         "quiz_url": day.quiz_url,
         "assignment_url": day.assignment_url,
@@ -412,7 +452,10 @@ def get_student_day_details(
             "telugu_summary_viewed": progress.telugu_summary_viewed if progress else False,
             "english_summary_viewed": progress.english_summary_viewed if progress else False,
             "video_watched": progress.video_watched if progress else False,
-            "flashcards_completed": progress.flashcards_completed if progress else False
+            "flashcards_completed": progress.flashcards_completed if progress else False,
+            "quiz_completed": progress.quiz_completed if progress else False,
+            "quiz_score": progress.quiz_score if progress else None,
+            "assignment_completed": progress.assignment_completed if progress else False
         },
         "pending_reasons": pending_reasons,
         "student_info": {
@@ -444,16 +487,32 @@ def update_activity_progress(
         )
         db.add(progress)
 
-    field_name = data.activity
+    field_aliases = {
+        "summary": "summary_viewed",
+        "video": "video_watched",
+        "quiz": "quiz_completed",
+        "assignment": "assignment_completed",
+        "flashcards": "flashcards_completed"
+    }
+    field_name = field_aliases.get(data.activity, data.activity)
     valid_fields = [
         "summary_viewed", "telugu_summary_viewed", "english_summary_viewed",
-        "video_watched", "flashcards_completed"
+        "video_watched", "flashcards_completed", "quiz_completed", "assignment_completed"
     ]
     if field_name in valid_fields:
         setattr(progress, field_name, data.value)
-        db.commit()
 
-    return {"status": "ok", "activity": field_name, "value": data.value}
+    if data.score is not None:
+        progress.quiz_score = data.score
+
+    db.commit()
+
+    return {
+        "status": "ok",
+        "activity": field_name,
+        "value": data.value,
+        "quiz_score": progress.quiz_score
+    }
 
 @router.post("/days/{day_id}/complete", response_model=dict)
 def complete_learning_day(
