@@ -102,13 +102,27 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     let errorDetail = '';
     try {
       const errorData = await response.json();
-      errorDetail = errorData.detail || errorData.message || '';
+      if (typeof errorData.detail === 'string') {
+        errorDetail = errorData.detail;
+      } else if (Array.isArray(errorData.detail)) {
+        errorDetail = errorData.detail.map((d: any) => d.msg || JSON.stringify(d)).join(', ');
+      } else if (typeof errorData.message === 'string') {
+        errorDetail = errorData.message;
+      } else if (typeof errorData.error === 'string') {
+        errorDetail = errorData.error;
+      } else if (errorData.error && typeof errorData.error.message === 'string') {
+        errorDetail = errorData.error.message;
+      } else if (errorData.error && typeof errorData.error.code === 'string') {
+        errorDetail = `Server error: ${errorData.error.code}`;
+      } else {
+        errorDetail = Object.keys(errorData).length ? JSON.stringify(errorData) : '';
+      }
     } catch {
       errorDetail = response.status === 404
         ? 'Backend API not reachable (404). Check Vercel function or VITE_API_URL.'
-        : `Request failed (HTTP ${response.status}: ${response.statusText || 'Error'})`;
+        : `Server responded with HTTP ${response.status}: ${response.statusText || 'Error'}`;
     }
-    throw new ApiError(response.status, errorDetail || 'Request failed', {});
+    throw new ApiError(response.status, errorDetail || `Request failed (HTTP ${response.status})`, {});
   }
 
   return response.json();

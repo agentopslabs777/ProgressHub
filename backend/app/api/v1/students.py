@@ -11,7 +11,7 @@ from backend.app.models.models import (
     StudentApplication, Program, GoogleDriveSubmission, AttendanceRecord,
     RewardTransaction, RewardWallet, ProgramPurchase, RefreshToken, Notification, ChatMessage
 )
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from backend.app.schemas.schemas import UserCreate, UserUpdate, UserResponse
 from backend.app.permissions.permissions import get_current_user, require_admin, require_employee, log_audit
 from backend.app.services.learning_engine import calculate_enrollment_progress
@@ -149,7 +149,7 @@ def create_student(
 class StudentRegisterForm(BaseModel):
     full_name: str
     contact_number: Optional[str] = None
-    email: EmailStr
+    email: str
     password: str
     payment_id: Optional[str] = None
     program_id: Optional[str] = None
