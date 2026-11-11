@@ -271,15 +271,21 @@ export function DailyClassPage() {
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#e5ebe5] pb-4">
         <div className="flex items-center gap-3">
           <Link
-            href={isReviewer && studentIdParam ? "/student-reviews" : "/my-programs"}
+            href={isReviewer && studentIdParam ? "/student-reviews" : day.program_id ? `/my-programs/${day.program_id}` : "/my-programs"}
             className="grid h-9 w-9 place-items-center rounded-xl border border-[#dde4dd] bg-white text-[#45574f] hover:bg-[#f2f6f2] transition"
+            title="Back to Curriculum Modules"
           >
             <ArrowLeft size={16} />
           </Link>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              {day.track_name && (
+                <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-[#e8eef7] text-[#1e40af] border border-[#bfdbfe]">
+                  Module: {day.track_name}
+                </span>
+              )}
               <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-[#e8f1ec] text-[#245b46]">
-                Day {day.day_number}
+                Submodule {day.day_number}
               </span>
               {day.is_completed ? (
                 <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-[#e1f5ea] text-[#1b6b44] flex items-center gap-1">

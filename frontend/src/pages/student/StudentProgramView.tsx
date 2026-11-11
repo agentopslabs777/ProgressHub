@@ -27,6 +27,7 @@ export function StudentProgramView() {
   const urlStudentId = searchParams.get('student_id');
 
   const [selectedStudentId, setSelectedStudentId] = useState<string | undefined>(urlStudentId || undefined);
+  const [selectedTrackId, setSelectedTrackId] = useState<string>('ALL');
 
   const { data: user } = useQuery({
     queryKey: ['current_user'],
@@ -57,6 +58,13 @@ export function StudentProgramView() {
 
   if (isLoading) return <LoadingState label="Loading learning tracks and day progression" />;
   if (isError) return <ErrorState retry={() => refetch()} />;
+
+  const displayedTracks = tracks.filter((t: any) => {
+    if (selectedTrackId && selectedTrackId !== 'ALL') {
+      return (t.trackId === selectedTrackId || t.id === selectedTrackId);
+    }
+    return true;
+  });
 
   const currentStudent = assignedStudents.find((s: any) => s.student_id === selectedStudentId);
 
@@ -109,8 +117,57 @@ export function StudentProgramView() {
       <PageTitle
         eyebrow="Curriculum Tracks"
         title="Learning Tracks & Sequential Day Progression"
-        description="Tracks progress sequentially. Day 1 is available upon enrollment; subsequent days unlock automatically or via faculty approval."
+        description="Main course modules have no lock system and can be accessed freely at any time. Submodules inside each module unlock sequentially upon daily assignment submissions."
       />
+
+      {/* Module Navigation Tabs */}
+      {tracks.length > 1 && (
+        <div className="panel p-3.5 bg-white border border-[#dce6df] rounded-2xl flex flex-wrap items-center justify-between gap-3 shadow-2xs">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-[#345243] flex items-center gap-1.5 mr-1">
+              <Layers size={14} className="text-[#255f46]" /> Modules:
+            </span>
+            <button
+              type="button"
+              onClick={() => setSelectedTrackId('ALL')}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                selectedTrackId === 'ALL'
+                  ? 'bg-[#255e46] text-white shadow-xs'
+                  : 'bg-[#f4f7f4] text-[#42584d] hover:bg-[#e6efe9] border border-[#d8e3dc]'
+              }`}
+            >
+              <span>All Modules</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${selectedTrackId === 'ALL' ? 'bg-white/20 text-white' : 'bg-[#e5eee7] text-[#2c5b48]'}`}>
+                {tracks.length}
+              </span>
+            </button>
+            {tracks.map((t: any) => {
+              const isSelected = selectedTrackId === (t.trackId || t.id);
+              return (
+                <button
+                  key={t.trackId || t.id}
+                  type="button"
+                  onClick={() => setSelectedTrackId(t.trackId || t.id)}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
+                    isSelected
+                      ? 'bg-[#255e46] text-white shadow-xs ring-2 ring-[#255e46]/20'
+                      : 'bg-[#f4f7f4] text-[#42584d] hover:bg-[#e6efe9] border border-[#d8e3dc]'
+                  }`}
+                >
+                  <span>{t.name}</span>
+                  <span className={`text-[10px] font-extrabold px-1.5 py-0.2 rounded-full ${isSelected ? 'bg-white/25 text-white' : 'bg-[#e5eee7] text-[#1e583f]'}`}>
+                    {t.progress}%
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="text-[11px] font-semibold text-[#255f46] bg-[#edf6f1] px-3 py-1 rounded-full border border-[#cbe1d3]">
+            🔓 No locks on modules · Access any module freely
+          </div>
+        </div>
+      )}
 
       {tracks.length === 0 ? (
         <div className="panel p-8 bg-white border border-[#e1e8e1] rounded-2xl">
@@ -120,9 +177,13 @@ export function StudentProgramView() {
             icon={Layers}
           />
         </div>
+      ) : displayedTracks.length === 0 ? (
+        <div className="panel p-8 bg-white border border-[#e1e8e1] rounded-2xl text-center text-xs text-[#72837a]">
+          No tracks found in the selected module.
+        </div>
       ) : (
         <div className="space-y-6">
-          {tracks.map((track: any) => (
+          {displayedTracks.map((track: any) => (
             <div key={track.trackId} className="panel overflow-hidden bg-white border border-[#e4ebe4] rounded-2xl shadow-xs">
               {/* Track Header */}
               <div className="flex flex-wrap items-center justify-between border-b border-[#edf0ea] bg-[#fafbf9] px-5 py-4 gap-3">
@@ -231,9 +292,10 @@ export function StudentProgramView() {
                           ) : isLocked ? (
                             <button
                               disabled
-                              className="btn btn-disabled text-xs py-1.5 px-3.5 flex items-center gap-1.5 cursor-not-allowed opacity-60"
+                              className="btn btn-disabled text-xs py-1.5 px-3.5 flex items-center gap-1.5 cursor-not-allowed opacity-60 font-semibold"
+                              title="Submodule locked - Complete previous day in this module to unlock"
                             >
-                              <Lock size={13} /> Locked
+                              <Lock size={13} /> Submodule Locked
                             </button>
                           ) : (
                             <Link

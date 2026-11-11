@@ -232,6 +232,16 @@ def get_student_day_details(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    day = db.query(LearningDay).filter(LearningDay.id == day_id).first()
+    if not day:
+        raise HTTPException(status_code=404, detail="Learning day not found")
+
+    track = db.query(LearningTrack).filter(LearningTrack.id == day.track_id).first()
+    if not track:
+        raise HTTPException(status_code=404, detail="Module/Track not found")
+
+    program = db.query(Program).filter(Program.id == track.program_id).first()
+
     target_student_id = current_user.id
     if student_id and current_user.role in ["employee", "admin"]:
         target_student_id = student_id
@@ -394,6 +404,9 @@ def get_student_day_details(
     return {
         "id": day.id,
         "track_id": day.track_id,
+        "track_name": track.name if track else None,
+        "program_id": track.program_id if track else None,
+        "program_name": program.name if program else None,
         "day_number": day.day_number,
         "title": day.title,
         "prev_day": {

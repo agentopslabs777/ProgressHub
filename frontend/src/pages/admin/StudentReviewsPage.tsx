@@ -309,6 +309,7 @@ export function StudentReviewsPage() {
   const queryClient = useQueryClient();
   const [selectedProgramId, setSelectedProgramId] = useState<string>('');
   const [selectedStudentId, setSelectedStudentId] = useState<string>('');
+  const [selectedTrackId, setSelectedTrackId] = useState<string>('ALL');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [searchDropdownOpen, setSearchDropdownOpen] = useState(false);
@@ -400,11 +401,23 @@ export function StudentReviewsPage() {
 
   const allAdminDays: any[] = [];
   adminStudentProgress.forEach((track: any) => {
+    const tId = track.trackId || track.track_id || track.id;
     if (track.days) {
       track.days.forEach((day: any) => {
-        allAdminDays.push({ ...day, trackName: track.name });
+        allAdminDays.push({
+          ...day,
+          trackId: tId,
+          trackName: track.name
+        });
       });
     }
+  });
+
+  const displayedAdminDays = allAdminDays.filter((d: any) => {
+    if (selectedTrackId && selectedTrackId !== 'ALL') {
+      return d.trackId === selectedTrackId;
+    }
+    return true;
   });
 
   const handleAdminReviewSaved = () => {
@@ -499,6 +512,7 @@ export function StudentReviewsPage() {
                 onChange={(e) => {
                   setSelectedProgramId(e.target.value);
                   setSelectedStudentId('');
+                  setSelectedTrackId('ALL');
                   setSearch('');
                 }}
                 className="field text-xs py-1.5 w-full font-medium"
@@ -535,6 +549,27 @@ export function StudentReviewsPage() {
                 )}
               </select>
             </div>
+
+            {/* Module Selector Dropdown */}
+            {adminStudentProgress.length > 0 && (
+              <div className="min-w-[190px]">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-[#72837b] block mb-1">
+                  Module / Subject
+                </label>
+                <select
+                  value={selectedTrackId}
+                  onChange={(e) => setSelectedTrackId(e.target.value)}
+                  className="field text-xs py-1.5 w-full font-semibold text-[#1f3128] border-[#a9c9b6] bg-[#f8fbf9]"
+                >
+                  <option value="ALL">🌐 All Modules ({adminStudentProgress.length})</option>
+                  {adminStudentProgress.map((track: any) => (
+                    <option key={track.trackId || track.id} value={track.trackId || track.id}>
+                      {track.name} ({track.days?.length || 0} submodules)
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {/* Search Input */}
             <div className="relative min-w-[220px]">
@@ -726,17 +761,73 @@ export function StudentReviewsPage() {
               </span>
             </div>
             <span className="text-[11px] font-semibold text-[#285d47] bg-[#e5f4eb] px-2.5 py-1 rounded-full border border-[#bde4ce]">
-              {allAdminDays.length} Submodules / Days
+              {displayedAdminDays.length} Submodules / Days
             </span>
           </div>
+
+          {/* INTERACTIVE MODULE TABS (Python, AWS, C...) */}
+          {adminStudentProgress.length > 0 && (
+            <div className="p-3 bg-[#f3f7f4] border-b border-[#d8e4dc] flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#4d6657] mr-1 flex items-center gap-1">
+                  <Layers size={13} className="text-[#255f46]" /> Course Modules:
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedTrackId('ALL')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                    selectedTrackId === 'ALL'
+                      ? 'bg-[#255e46] text-white shadow-xs'
+                      : 'bg-white text-[#45584e] border border-[#d6e0d8] hover:bg-[#eaf1ec]'
+                  }`}
+                >
+                  <span>All Modules</span>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${selectedTrackId === 'ALL' ? 'bg-white/20 text-white' : 'bg-[#eef4f0] text-[#2c5b48]'}`}>
+                    {allAdminDays.length}
+                  </span>
+                </button>
+
+                {adminStudentProgress.map((track: any) => {
+                  const tId = track.trackId || track.track_id || track.id;
+                  const isSelected = selectedTrackId === tId;
+                  const totalDays = track.totalDays || track.days?.length || 0;
+                  const completedDays = track.completedDays || track.days?.filter((d: any) => d.completed || d.is_completed).length || 0;
+                  return (
+                    <button
+                      key={tId}
+                      type="button"
+                      onClick={() => setSelectedTrackId(tId)}
+                      className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
+                        isSelected
+                          ? 'bg-[#255e46] text-white shadow-xs ring-2 ring-[#255e46]/20'
+                          : 'bg-white text-[#334b3e] border border-[#d2ded5] hover:bg-[#ebf4ee]'
+                      }`}
+                    >
+                      <span>{track.name}</span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold ${isSelected ? 'bg-white/25 text-white' : 'bg-[#e5f1ea] text-[#1e583f]'}`}>
+                        {completedDays}/{totalDays} Submodules
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="text-[11px] font-semibold text-[#375a48] bg-white px-3 py-1 rounded-lg border border-[#cfe0d5]">
+                Showing <span className="font-bold text-[#1f4a36]">{displayedAdminDays.length}</span> submodules
+                {selectedTrackId !== 'ALL' && (
+                  <span> in <span className="font-bold text-[#235842]">{adminStudentProgress.find((t: any) => (t.trackId || t.track_id || t.id) === selectedTrackId)?.name}</span></span>
+                )}
+              </div>
+            </div>
+          )}
 
           {isAdminProgLoading ? (
             <div className="p-12">
               <LoadingState label="Loading student curriculum progress and evaluation records..." />
             </div>
-          ) : allAdminDays.length === 0 ? (
+          ) : displayedAdminDays.length === 0 ? (
             <div className="p-10 text-center text-xs text-[#6e7e76]">
-              No curriculum days configured yet for this student's enrolled program.
+              No curriculum days configured yet for this module.
             </div>
           ) : (
             <div className="overflow-x-auto max-h-[650px] overflow-y-auto">
@@ -761,7 +852,7 @@ export function StudentReviewsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#ebf1eb]">
-                  {allAdminDays.map((d: any) => {
+                  {displayedAdminDays.map((d: any) => {
                     const sub = d.google_drive_submission;
                     const prog = d.activity_progress || {};
                     const isCompleted = d.completed || d.is_completed;
@@ -955,7 +1046,10 @@ export function StudentReviewsPage() {
           <div className="flex items-center justify-between px-1">
             <h3 className="text-xs font-bold uppercase tracking-wider text-[#45574f] flex items-center gap-1.5">
               <BookOpen size={14} className="text-[#285d47]" />
-              Student Curriculum Progression ({allAdminDays.length} Days)
+              Student Curriculum Progression ({displayedAdminDays.length} Submodules)
+              {selectedTrackId !== 'ALL' && (
+                <span className="text-[#255e46] font-normal"> · {adminStudentProgress.find((t: any) => (t.trackId || t.track_id || t.id) === selectedTrackId)?.name}</span>
+              )}
             </h3>
             <span className="text-[11px] text-[#6e7e76]">
               Sequential Day-by-Day Progress & Evidence Evaluations
@@ -963,11 +1057,11 @@ export function StudentReviewsPage() {
           </div>
 
           {/* Quick Scroll Navigation Bar */}
-          {allAdminDays.length > 0 && (
+          {displayedAdminDays.length > 0 && (
             <div className="p-2.5 bg-white border border-[#e2e8e2] rounded-xl flex items-center gap-2 overflow-x-auto shadow-2xs">
               <span className="text-[10px] font-bold text-[#62776c] uppercase shrink-0">Jump To Day:</span>
               <div className="flex items-center gap-1.5">
-                {allAdminDays.map((d: any) => (
+                {displayedAdminDays.map((d: any) => (
                   <button
                     key={d.id}
                     type="button"
@@ -990,12 +1084,12 @@ export function StudentReviewsPage() {
 
           {isAdminProgLoading ? (
             <LoadingState label="Loading student curriculum days and submissions..." />
-          ) : allAdminDays.length === 0 ? (
+          ) : displayedAdminDays.length === 0 ? (
             <div className="panel p-8 bg-white border border-[#e2e8e2] text-center text-xs text-[#718279] rounded-2xl">
-              No curriculum days configured yet for this program.
+              No curriculum submodules configured yet for this module.
             </div>
           ) : (
-            allAdminDays.map((d: any) => (
+            displayedAdminDays.map((d: any) => (
               <AdminDayReviewCard
                 key={d.id}
                 day={d}
