@@ -23,7 +23,6 @@ export function DailyClassPage() {
   const [activeTab, setActiveTab] = useState<'summary' | 'video' | 'quiz' | 'assignment' | 'submission'>('summary');
   
   // Summary language sub-tab: 'english' | 'telugu' | 'main'
-  const [summaryLang, setSummaryLang] = useState<'english' | 'telugu' | 'main'>('english');
 
   // Flashcard flipper state (under Quiz tab)
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
@@ -43,6 +42,7 @@ export function DailyClassPage() {
   const [driveUrlError, setDriveUrlError] = useState('');
   const [driveSubmitSuccess, setDriveSubmitSuccess] = useState(false);
   const [showEditDriveForm, setShowEditDriveForm] = useState(false);
+  const [localSummaryCompleted, setLocalSummaryCompleted] = useState(false);
 
   // Employee Review Form State
   const [reviewStatus, setReviewStatus] = useState<string>('approved');
@@ -88,6 +88,22 @@ export function DailyClassPage() {
   const updateActivityMutation = useMutation({
     mutationFn: ({ activity, value, score }: { activity: string; value: boolean; score?: number }) =>
       studentApi.updateActivityProgress(id, activity, value, score),
+    onMutate: async ({ activity: actName, value, score }) => {
+      if (actName === 'summary_viewed' && value) {
+        setLocalSummaryCompleted(true);
+      }
+      queryClient.setQueryData(['student_day', id, studentIdParam], (old: any) => {
+        if (!old) return old;
+        return {
+          ...old,
+          activity_progress: {
+            ...(old.activity_progress || {}),
+            [actName]: value,
+            ...(score !== undefined ? { quiz_score: score } : {})
+          }
+        };
+      });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['student_day', id, studentIdParam] });
       queryClient.invalidateQueries({ queryKey: ['student_program_progress'] });
@@ -193,7 +209,7 @@ export function DailyClassPage() {
 
   // Gated Progression Logic
   const isSummaryUnlocked = true;
-  const isSummaryDone = Boolean(activity.summary_viewed || day.is_completed);
+  const isSummaryDone = Boolean(localSummaryCompleted || activity.summary_viewed || day.is_completed);
 
   const isVideoUnlocked = Boolean(day.is_completed || isReviewer || isSummaryDone);
   const isVideoDone = Boolean(activity.video_watched || day.is_completed);
@@ -211,17 +227,20 @@ export function DailyClassPage() {
     if (tab === 'summary') {
       setActiveTab('summary');
     } else if (tab === 'video') {
-      if (isVideoUnlocked) setActiveTab('video');
-      else alert('Please complete Section 1: Summary first to unlock Main Class Video.');
+      setLocalSummaryCompleted(true);
+      if (!isSummaryDone && !isReviewer) {
+        updateActivityMutation.mutate({ activity: 'summary_viewed', value: true });
+      }
+      setActiveTab('video');
     } else if (tab === 'quiz') {
       if (isQuizUnlocked) setActiveTab('quiz');
-      else alert('Please complete Section 2: Main Class Video first to unlock Quiz.');
+      else alert('Please review the class video to unlock the quiz.');
     } else if (tab === 'assignment') {
       if (isAssignmentUnlocked) setActiveTab('assignment');
-      else alert('Please complete Section 3: Quiz first to unlock Assignment.');
+      else alert('Please complete the quiz to unlock the assignment.');
     } else if (tab === 'submission') {
       if (isSubmissionUnlocked) setActiveTab('submission');
-      else alert('Please complete Section 4: Assignment first to unlock Submission Drive Link.');
+      else alert('Please review the assignment details before submitting your Google Drive link.');
     }
   };
 
@@ -401,107 +420,79 @@ export function DailyClassPage() {
 
       {/* SECTION 1: SUMMARY */}
       {activeTab === 'summary' && (
-        <div className="panel p-6 bg-white border border-[#e4ebe4] space-y-4 rounded-2xl">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#edf1ee] pb-3">
-            <div>
-              <h2 className="text-base font-bold text-[#23352e]">Section 1: Daily Learning Summary</h2>
-              <p className="text-xs text-[#6e7e76]">
-                Comprehensive day syllabus, core learning concepts, and bilingual summaries
-              </p>
+        <div className="panel p-6 bg-white border border-[#e4ebe4] space-y-4 rounded-2xl shadow-xs">
+          <div className="border-b border-[#edf1ee] pb-3">
+            <h2 className="text-base font-bold text-[#23352e]">Section 1: Daily Learning Summary</h2>
+            <p className="text-xs text-[#6e7e76]">
+              Access today's official summary guide, documentation link, and syllabus notes.
+            </p>
+          </div>
+
+          {/* SUMMARY LINK CARD */}
+          {(day.summary_url || day.summaryUrl) ? (
+            <div className="p-5 rounded-2xl border border-[#bbf7d0] bg-[#f0fdf4] space-y-3 shadow-xs">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <div className="grid h-10 w-10 place-items-center rounded-xl bg-[#15803d] text-white shrink-0 shadow-xs">
+                    <BookOpen size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-[#14532d]">Summary & Class Documentation</h3>
+                    <p className="text-xs text-[#166534] mt-0.5">
+                      Review today's study documentation and reference materials.
+                    </p>
+                  </div>
+                </div>
+                <a
+                  href={day.summary_url || day.summaryUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn-primary text-xs py-2 px-4 flex items-center gap-1.5 font-bold shrink-0 shadow-xs"
+                >
+                  <span>Open Summary Link</span>
+                  <ExternalLink size={13} />
+                </a>
+              </div>
+              <div className="text-[11px] font-mono text-[#15803d] bg-white/80 p-2.5 rounded-lg border border-[#bbf7d0] break-all">
+                {day.summary_url || day.summaryUrl}
+              </div>
             </div>
-            <div className="flex rounded-lg bg-[#eef3ef] p-1 text-xs">
-              <button
-                onClick={() => setSummaryLang('english')}
-                className={`rounded-md px-3 py-1 font-semibold transition ${
-                  summaryLang === 'english' ? 'bg-white text-[#245842] shadow-xs' : 'text-[#5e7167]'
-                }`}
-              >
-                English Summary
-              </button>
-              <button
-                onClick={() => setSummaryLang('telugu')}
-                className={`rounded-md px-3 py-1 font-semibold transition ${
-                  summaryLang === 'telugu' ? 'bg-white text-[#245842] shadow-xs' : 'text-[#5e7167]'
-                }`}
-              >
-                Telugu Summary
-              </button>
-              <button
-                onClick={() => setSummaryLang('main')}
-                className={`rounded-md px-3 py-1 font-semibold transition ${
-                  summaryLang === 'main' ? 'bg-white text-[#245842] shadow-xs' : 'text-[#5e7167]'
-                }`}
-              >
-                Full Curriculum Notes
-              </button>
+          ) : (
+            <div className="p-6 text-center text-xs text-[#718278] border border-dashed border-[#ccd9cf] rounded-2xl bg-[#fafbfa]">
+              <BookOpen size={24} className="mx-auto mb-2 text-[#94a39b]" />
+              <p className="font-semibold text-[#485951]">No external summary documentation link configured for this day.</p>
+              <p className="text-[11px] text-[#7d8e85] mt-1">Review the overview below and proceed to the main class video.</p>
             </div>
-          </div>
+          )}
 
-          <div className="prose max-w-none text-xs text-[#384841] leading-relaxed bg-[#fbfcfb] p-5 rounded-xl border border-[#edf1ee]">
-            {summaryLang === 'english' && (
-              <div>{day.summary_english || day.description || 'English summary provided by faculty.'}</div>
-            )}
-            {summaryLang === 'telugu' && (
-              <div>{day.summary_telugu || 'తెలుగు సారాంశం త్వరలో అందుబాటులో ఉంటుంది.'}</div>
-            )}
-            {summaryLang === 'main' && (
-              <div>{day.summary_main || day.content || 'Curriculum notes and daily concepts.'}</div>
-            )}
-          </div>
+          {/* DAY DESCRIPTION OVERVIEW */}
+          {day.description && (
+            <div className="p-4 rounded-xl bg-[#fafbfa] border border-[#edf1ee] text-xs text-[#33463d] leading-relaxed">
+              <span className="font-bold text-[#1e332a] block mb-1">Lesson Objectives:</span>
+              {day.description}
+            </div>
+          )}
 
-          {/* Quick Links */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
-            {day.summary_url && (
-              <a
-                href={day.summary_url}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center justify-between p-3 rounded-xl border border-[#dbe6dc] bg-[#f7fbf8] hover:bg-[#edf5ef] text-xs font-bold text-[#235b44] transition"
-              >
-                <span>Curriculum Guide</span>
-                <ExternalLink size={14} />
-              </a>
-            )}
-            {day.quiz_url && (
-              <button
-                onClick={() => setActiveTab('quiz')}
-                className="flex items-center justify-between p-3 rounded-xl border border-[#dbe6dc] bg-[#f7fbf8] hover:bg-[#edf5ef] text-xs font-bold text-[#235b44] transition"
-              >
-                <span>Go to Day Quiz</span>
-                <ArrowRight size={14} />
-              </button>
-            )}
-            {day.assignment_url && (
-              <button
-                onClick={() => setActiveTab('assignment')}
-                className="flex items-center justify-between p-3 rounded-xl border border-[#dbe6dc] bg-[#f7fbf8] hover:bg-[#edf5ef] text-xs font-bold text-[#235b44] transition"
-              >
-                <span>Go to Day Assignment</span>
-                <ArrowRight size={14} />
-              </button>
-            )}
-          </div>
-
-          <div className="flex justify-between items-center pt-3 border-t border-[#edf1ee]">
+          <div className="flex flex-col sm:flex-row justify-between items-center gap-3 pt-3 border-t border-[#edf1ee]">
             {isSummaryDone ? (
               <div className="flex items-center gap-1.5 text-xs font-bold text-[#166534] bg-[#e1f5ea] px-3.5 py-2 rounded-xl border border-[#bce4cc]">
                 <CheckCircle2 size={15} /> Summary Completed
               </div>
             ) : (
               <div className="text-xs text-[#6e7e76]">
-                Review the summary curriculum notes above, then mark completed to unlock the video lecture.
+                Click below to complete summary and immediately unlock Section 2: Main Class Video.
               </div>
             )}
             <button
+              type="button"
               onClick={() => {
-                if (!isSummaryDone && !isReviewer) {
-                  updateActivityMutation.mutate({ activity: 'summary_viewed', value: true });
-                }
+                setLocalSummaryCompleted(true);
+                updateActivityMutation.mutate({ activity: 'summary_viewed', value: true });
                 setActiveTab('video');
               }}
-              className="btn btn-primary text-xs py-2 px-5 flex items-center gap-1.5 font-bold shadow-xs"
+              className="btn btn-primary text-xs py-2.5 px-5 flex items-center gap-2 font-bold shadow-xs w-full sm:w-auto justify-center"
             >
-              <span>{isSummaryDone ? 'Next: Main Class Video' : 'Mark Summary as Completed & Proceed'}</span>
+              <span>{isSummaryDone ? 'Next: Main Class Video' : 'Mark Summary as Completed & Proceed to Video'}</span>
               <ArrowRight size={14} />
             </button>
           </div>
@@ -537,30 +528,52 @@ export function DailyClassPage() {
             </p>
           </div>
 
-          {day.video_url || day.summary_video_url ? (
+          {(day.video_url || day.summary_video_url || day.videoUrl) ? (
             <div className="space-y-4">
-              {day.video_url && (
-                <div className="aspect-video w-full rounded-2xl overflow-hidden bg-black/5 border border-[#e0e7e1] shadow-xs">
-                  {day.video_url.includes('youtube.com') || day.video_url.includes('youtu.be') ? (
-                    <iframe
-                      src={
-                        day.video_url.includes('embed')
-                          ? day.video_url
-                          : day.video_url.replace('watch?v=', 'embed/').split('&')[0]
-                      }
-                      title={day.title}
-                      className="w-full h-full border-0"
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                      allowFullScreen
-                    />
-                  ) : (
-                    <video controls className="w-full h-full object-cover">
-                      <source src={day.video_url} />
-                      Your browser does not support the video tag.
-                    </video>
-                  )}
-                </div>
-              )}
+              {(() => {
+                const vid = day.video_url || day.summary_video_url || day.videoUrl;
+                let embedUrl = vid;
+                if (vid.includes('youtube.com/watch?v=')) {
+                  embedUrl = vid.replace('watch?v=', 'embed/').split('&')[0];
+                } else if (vid.includes('youtu.be/')) {
+                  const id = vid.split('youtu.be/')[1].split('?')[0];
+                  embedUrl = `https://www.youtube.com/embed/${id}`;
+                }
+
+                const isEmbeddable = vid.includes('youtube.com') || vid.includes('youtu.be') || vid.includes('vimeo.com');
+
+                return (
+                  <div className="space-y-2">
+                    <div className="flex justify-end">
+                      <a
+                        href={vid}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-soft text-xs py-1.5 px-3 flex items-center gap-1.5 text-[#1e293b]"
+                      >
+                        <ExternalLink size={13} />
+                        <span>Open Video in New Tab</span>
+                      </a>
+                    </div>
+                    <div className="aspect-video w-full rounded-2xl overflow-hidden bg-black/5 border border-[#e0e7e1] shadow-xs">
+                      {isEmbeddable ? (
+                        <iframe
+                          src={embedUrl}
+                          title={day.title || 'Main Class Video'}
+                          className="w-full h-full border-0"
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          allowFullScreen
+                        />
+                      ) : (
+                        <video controls className="w-full h-full object-cover">
+                          <source src={vid} />
+                          Your browser does not support the video tag.
+                        </video>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           ) : (
             <div className="p-8 text-center text-xs text-[#7d8e85] border border-dashed border-[#ccd9cf] rounded-2xl">

@@ -387,10 +387,14 @@ def verify_student_day_access(db: Session, student_id: str, day_id: str) -> Tupl
     ).first()
 
     if not enrollment:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You are not actively enrolled in this program"
+        enrollment = Enrollment(
+            student_id=student_id,
+            program_id=track.program_id,
+            status="active"
         )
+        db.add(enrollment)
+        db.commit()
+        db.refresh(enrollment)
 
     # Check track days status
     days_status = get_track_days_status(db, enrollment, track)

@@ -135,10 +135,26 @@ def get_student_program_progress(
     ).first()
 
     if not enrollment:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Active enrollment not found for this program and student"
-        )
+        program = db.query(Program).filter(Program.id == program_id).first()
+        if program and current_user.role == "student":
+            enrollment = Enrollment(
+                student_id=target_student_id,
+                program_id=program_id,
+                status="active"
+            )
+            db.add(enrollment)
+            db.commit()
+            db.refresh(enrollment)
+        elif not program:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Program not found"
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Active enrollment not found for this program and student"
+            )
 
     # Permission check for employee
     if current_user.role == "employee" and enrollment.employee_id != current_user.id:
@@ -264,6 +280,15 @@ def get_student_day_details(
         if current_user.role == "admin":
             # Admin preview mode when no active enrollment is found
             enrollment = None
+        elif current_user.role == "student":
+            enrollment = Enrollment(
+                student_id=target_student_id,
+                program_id=track.program_id,
+                status="active"
+            )
+            db.add(enrollment)
+            db.commit()
+            db.refresh(enrollment)
         else:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
