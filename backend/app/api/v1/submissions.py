@@ -2,7 +2,7 @@ import re
 from typing import List, Optional
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from backend.app.db.session import get_db
 from backend.app.models.models import (
     GoogleDriveSubmission, Enrollment, LearningDay, LearningTrack,
@@ -16,7 +16,7 @@ from backend.app.services.learning_engine import (
     verify_student_day_access, check_and_update_day_progress, calculate_enrollment_progress
 )
 from backend.app.services.reward_service import (
-    get_or_create_reward_config, credit_reward_points
+    get_or_create_reward_config, get_or_create_wallet, credit_reward_points
 )
 
 router = APIRouter(prefix="/submissions", tags=["Submissions & Reviews"])
@@ -93,7 +93,8 @@ def submit_google_drive_evidence(
                 reason=f"Day {day.day_number} ({day.title}) assignment submission reward",
                 related_entity_type="google_drive_submission",
                 related_entity_id=submission.id,
-                commit=False
+                commit=False,
+                config=reward_config,
             )
             submission.base_reward_points = base_points
             submission.reward_awarded = True
@@ -160,20 +161,17 @@ def submit_google_drive_evidence(
         )
         db.add(notif)
 
-    # Single atomic commit for extreme speed
-    db.commit()
-    db.refresh(submission)
-
     log_audit(
         db=db,
         actor=current_user,
         action="SUBMIT_GOOGLE_DRIVE",
         target_type="google_drive_submission",
         target_id=submission.id,
-        details=f"Attempt {attempt_number} for Day {day.day_number}: '{day.title}'"
+        details=f"Attempt {attempt_number} for Day {day.day_number}: '{day.title}'",
+        commit=False,
     )
 
-    return {
+    response_payload = {
         "id": submission.id,
         "attempt_number": submission.attempt_number,
         "status": submission.status,
@@ -186,6 +184,11 @@ def submit_google_drive_evidence(
         "next_day_number": next_day.day_number if next_day else None,
         "message": f"Assignment submitted successfully! Day {day.day_number} marked completed and Day {next_day.day_number if next_day else ''} unlocked."
     }
+
+    # Single atomic commit without extra post-commit refresh SELECT
+    db.commit()
+
+    return response_payload
 
 @router.get("/google-drive", response_model=List[dict])
 def list_google_drive_submissions(
@@ -302,7 +305,15 @@ def review_google_drive_submission(
     if current_user.role not in ("admin", "employee"):
         raise HTTPException(status_code=403, detail="Only teachers or administrators can review submissions")
 
-    sub = db.query(GoogleDriveSubmission).filter(GoogleDriveSubmission.id == submission_id).first()
+    sub = (
+        db.query(GoogleDriveSubmission)
+        .options(
+            joinedload(GoogleDriveSubmission.enrollment),
+            joinedload(GoogleDriveSubmission.day),
+        )
+        .filter(GoogleDriveSubmission.id == submission_id)
+        .first()
+    )
     if not sub:
         raise HTTPException(status_code=404, detail="Submission not found")
 
@@ -324,13 +335,17 @@ def review_google_drive_submission(
     sub.reviewer_id = current_user.id
     sub.reviewed_at = datetime.utcnow()
 
-    # Process reward points
-    reward_config = get_or_create_reward_config(db)
+    # Determine whether reward points need to be credited before fetching wallet/config
+    needs_base = status_to_set == "approved" and not getattr(sub, "reward_awarded", False)
+    wants_extra = data.additional_reward_points is not None and data.additional_reward_points > 0
     day = sub.day
 
-    # Base reward if on_approval
-    base_points = float(getattr(day, "base_reward_points", None) or reward_config.default_submission_points)
-    if status_to_set == "approved" and not getattr(sub, "reward_awarded", False):
+    reward_config = get_or_create_reward_config(db) if (needs_base or wants_extra) else None
+    wallet = None
+
+    if needs_base and reward_config is not None:
+        base_points = float(getattr(day, "base_reward_points", None) or reward_config.default_submission_points)
+        wallet = get_or_create_wallet(db, enr.student_id)
         try:
             credit_reward_points(
                 db=db,
@@ -341,22 +356,24 @@ def review_google_drive_submission(
                 related_entity_type="google_drive_submission",
                 related_entity_id=sub.id,
                 created_by_id=current_user.id,
-                commit=False
+                commit=False,
+                config=reward_config,
+                wallet=wallet,
             )
             sub.base_reward_points = base_points
             sub.reward_awarded = True
         except Exception:
             pass
 
-    # Additional employee reward points (0 - 50) directly added to student wallet
-    awarded_extra = 0.0
-    if data.additional_reward_points is not None and data.additional_reward_points > 0:
+    if wants_extra and reward_config is not None:
         max_allowed = float(reward_config.max_employee_points_per_review or 50.0)
         extra_to_give = min(float(data.additional_reward_points), max_allowed)
         prev_extra = float(getattr(sub, "additional_reward_points", 0.0) or 0.0)
         diff = extra_to_give - prev_extra
 
         if diff > 0:
+            if wallet is None:
+                wallet = get_or_create_wallet(db, enr.student_id)
             credit_reward_points(
                 db=db,
                 user_id=enr.student_id,
@@ -367,15 +384,18 @@ def review_google_drive_submission(
                 related_entity_id=f"{sub.id}_{int(datetime.utcnow().timestamp())}",
                 created_by_id=current_user.id,
                 commit=False,
-                allow_multiple=True
+                allow_multiple=True,
+                config=reward_config,
+                wallet=wallet,
             )
-            awarded_extra = diff
         sub.additional_reward_points = extra_to_give
 
-    # Recalculate day progress for student
-    day_completed = check_and_update_day_progress(db, enr, day, current_user)
+    # Recalculate day progress for student without extra round-trip commits
+    day_completed = check_and_update_day_progress(
+        db, enr, day, current_user, commit=False, known_latest_drive=sub
+    )
 
-    # Notify student with actual points awarded (per requirements Section 10)
+    # Notify student with actual points awarded
     status_label = "Approved" if sub.status == "approved" else ("Revision Requested" if sub.status == "changes_requested" else "Review Update")
     extra_msg = f" You received {data.additional_reward_points:.0f} additional reward points." if (data.additional_reward_points and data.additional_reward_points > 0) else ""
     notif = Notification(
@@ -386,20 +406,18 @@ def review_google_drive_submission(
     )
     db.add(notif)
 
-    # Single atomic commit for instant response
-    db.commit()
-    db.refresh(sub)
-
     log_audit(
         db=db,
         actor=current_user,
         action="REVIEW_GOOGLE_DRIVE",
         target_type="google_drive_submission",
         target_id=sub.id,
-        details=f"Verdict '{sub.status}' with rating {sub.rating}, extra pts {data.additional_reward_points} for student {enr.student_id}"
+        details=f"Verdict '{sub.status}' with rating {sub.rating}, extra pts {data.additional_reward_points} for student {enr.student_id}",
+        commit=False,
     )
 
-    return {
+    # Read response values before commit so SQLAlchemy does not fire a post-commit SELECT
+    response_payload = {
         "id": sub.id,
         "status": sub.status,
         "rating": sub.rating,
@@ -413,6 +431,11 @@ def review_google_drive_submission(
         "day_is_completed": day_completed,
         "message": f"Submission successfully marked as {sub.status}"
     }
+
+    # Single atomic commit for review, rewards, progress, notification, and audit log
+    db.commit()
+
+    return response_payload
 
 @router.get("/student-course-days", response_model=List[dict])
 def get_student_course_days(

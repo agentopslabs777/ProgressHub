@@ -1,12 +1,13 @@
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from backend.app.db.session import get_db
 from backend.app.core.config import settings
 from backend.app.core.security import verify_password, get_password_hash, create_access_token, create_refresh_token
 from backend.app.models.models import User, RefreshToken
 from backend.app.schemas.schemas import LoginInput, TokenResponse, RefreshTokenInput, UserCreate, UserResponse
-from backend.app.permissions.permissions import get_current_user, log_audit
+from backend.app.permissions.permissions import get_current_user, require_admin, log_audit
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -90,9 +91,43 @@ def logout(current_user: User = Depends(get_current_user), db: Session = Depends
     log_audit(db=db, actor=current_user, action="LOGOUT", target_type="user", target_id=current_user.id)
     return {"message": "Successfully logged out"}
 
+class ChangePasswordInput(BaseModel):
+    current_password: str
+    new_password: str
+
+
 @router.get("/me", response_model=UserResponse)
 def get_current_account(current_user: User = Depends(get_current_user)):
     return UserResponse.model_validate(current_user)
+
+
+@router.post("/change-password")
+def change_admin_password(
+    data: ChangePasswordInput,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    if not verify_password(data.current_password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+    if len(data.new_password.strip()) < 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be at least 6 characters",
+        )
+    current_user.password_hash = get_password_hash(data.new_password)
+    db.commit()
+    log_audit(
+        db=db,
+        actor=current_user,
+        action="CHANGE_ADMIN_PASSWORD",
+        target_type="user",
+        target_id=current_user.id,
+        details="Admin changed own password",
+    )
+    return {"message": "Admin password updated successfully"}
 
 @router.post("/setup-admin", response_model=TokenResponse)
 def setup_first_admin(data: UserCreate, db: Session = Depends(get_db)):

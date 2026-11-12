@@ -1,7 +1,9 @@
+from collections import defaultdict
 from typing import List, Dict, Any, Tuple, Optional
 from datetime import datetime, timedelta
 import json
 from fastapi import HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from backend.app.models.models import (
     Enrollment, LearningTrack, LearningDay, DayProgress, 
@@ -10,140 +12,19 @@ from backend.app.models.models import (
 )
 from backend.app.permissions.permissions import log_audit
 
-def get_track_days_status(db: Session, enrollment: Enrollment, track: LearningTrack) -> List[Dict[str, Any]]:
-    """
-    Computes sequential status ('available', 'completed', 'locked', 'pending_review')
-    for all days in a track, taking into account:
-    - Sequential completion
-    - Configurable waiting period (e.g. 24-hour rule) after completing the previous day
-    - Manual unlocks / locks by authorized employees or admin
-    - Automatic unlock countdown
-    """
-    days = db.query(LearningDay).filter(
-        LearningDay.track_id == track.id
-    ).order_by(LearningDay.day_number.asc()).all()
 
-    # Load all DayProgress records for this enrollment and track
-    progress_records = db.query(DayProgress).filter(
-        DayProgress.enrollment_id == enrollment.id
-    ).all()
-    progress_by_day = {p.day_id: p for p in progress_records}
-
-    now = datetime.utcnow()
-    days_status = []
-    prev_day_completed = True
-    prev_completion_time: Optional[datetime] = None
-
-    for idx, day in enumerate(days):
-        prog = progress_by_day.get(day.id)
-        is_completed = bool(prog and prog.is_completed)
-        is_manually_unlocked = bool(prog and prog.is_manually_unlocked)
-        
-        # Determine unlock mode & delay (default 24.0 hours)
-        delay_hours = day.unlock_delay_hours if day.unlock_delay_hours is not None else 24.0
-        unlock_mode = day.unlock_mode or "both"
-
-        next_unlock_time: Optional[datetime] = None
-        remaining_seconds = 0
-        is_unlocked = False
-
-        if idx == 0:
-            # First day of the track is unlocked by default upon enrollment
-            is_unlocked = True
-        else:
-            if is_manually_unlocked:
-                is_unlocked = True
-            elif prev_day_completed:
-                # When previous day is completed, the next day opens immediately without 24-hour delay
-                is_unlocked = True
-                remaining_seconds = 0
-            else:
-                is_unlocked = False
-
-        # Determine status
-        if is_completed:
-            day_status = "completed"
-        elif is_unlocked:
-            # Check if student submitted work that is currently awaiting review
-            has_pending_review = False
-            # Check google drive submission
-            latest_drive = db.query(GoogleDriveSubmission).filter(
-                GoogleDriveSubmission.enrollment_id == enrollment.id,
-                GoogleDriveSubmission.day_id == day.id,
-                GoogleDriveSubmission.is_latest == True
-            ).first()
-            if latest_drive and latest_drive.status in ("submitted", "under_review"):
-                has_pending_review = True
-            
-            # Check task submission
-            task_ids = [t.id for t in db.query(DailyTask.id).filter(DailyTask.day_id == day.id).all()]
-            if task_ids:
-                pending_task = db.query(TaskSubmission).filter(
-                    TaskSubmission.enrollment_id == enrollment.id,
-                    TaskSubmission.task_id.in_(task_ids),
-                    TaskSubmission.status.in_(["submitted", "under_review"])
-                ).first()
-                if pending_task:
-                    has_pending_review = True
-
-            day_status = "pending_review" if has_pending_review else "available"
-        else:
-            day_status = "locked"
-
-        # Check pending completion reasons for UI transparency
-        _, pending_reasons = evaluate_day_completion(db, enrollment, day)
-
-        unlocked_by_user = None
-        if prog and prog.unlocked_by_id:
-            u = db.query(User).filter(User.id == prog.unlocked_by_id).first()
-            if u:
-                unlocked_by_user = u.full_name
-
-        days_status.append({
-            "day": day,
-            "status": day_status,
-            "is_completed": is_completed,
-            "completed_at": prog.completed_at.isoformat() if (prog and prog.completed_at) else None,
-            "is_unlocked": is_unlocked,
-            "next_unlock_time": next_unlock_time.isoformat() if next_unlock_time else None,
-            "remaining_seconds": remaining_seconds,
-            "unlock_delay_hours": delay_hours,
-            "unlock_mode": unlock_mode,
-            "is_manually_unlocked": is_manually_unlocked,
-            "unlocked_by_name": unlocked_by_user,
-            "unlock_reason": prog.unlock_reason if prog else None,
-            "pending_reasons": pending_reasons,
-            "progress": {
-                "summary_viewed": getattr(prog, "summary_viewed", False) if prog else False,
-                "telugu_summary_viewed": getattr(prog, "telugu_summary_viewed", False) if prog else False,
-                "english_summary_viewed": getattr(prog, "english_summary_viewed", False) if prog else False,
-                "video_watched": getattr(prog, "video_watched", False) if prog else False,
-                "flashcards_completed": getattr(prog, "flashcards_completed", False) if prog else False,
-                "quiz_completed": getattr(prog, "quiz_completed", False) if prog else False,
-                "quiz_score": getattr(prog, "quiz_score", None) if prog else None,
-                "assignment_completed": getattr(prog, "assignment_completed", False) if prog else False,
-            }
-        })
-
-        # Update previous completion state for sequential logic
-        prev_day_completed = is_completed
-        prev_completion_time = prog.completed_at if (prog and prog.completed_at) else None
-
-    return days_status
-
-def evaluate_day_completion(db: Session, enrollment: Enrollment, day: LearningDay) -> Tuple[bool, List[str]]:
-    """
-    Evaluates whether all mandatory completion requirements for a day are satisfied:
-    1. All required checklist items completed
-    2. If require_task_submission or task is required: task submission exists (and accepted if approval required)
-    3. If require_google_drive_submission: valid drive link submitted (and approved if require_approval)
-    4. If require_approval: teacher or admin approval must be given
-    5. Configurable completion_requirements JSON
-    Returns (is_satisfied, list_of_pending_reasons)
-    """
+def evaluate_day_completion_data(
+    day: LearningDay,
+    required_items: List[ChecklistTemplateItem],
+    completed_item_ids: set,
+    tasks: List[DailyTask],
+    task_subs_by_task: Dict[str, TaskSubmission],
+    latest_drive: Optional[GoogleDriveSubmission],
+    day_progress: Optional[DayProgress],
+) -> Tuple[bool, List[str]]:
+    """Evaluates whether all mandatory completion requirements for a day are satisfied using preloaded records."""
     pending_reasons = []
 
-    # Parse configurable requirements if set
     custom_reqs = []
     if day.completion_requirements:
         try:
@@ -153,40 +34,19 @@ def evaluate_day_completion(db: Session, enrollment: Enrollment, day: LearningDa
 
     # 1. Checklist Requirements
     should_check_checklist = ("checklist" in custom_reqs) or not custom_reqs
-    if should_check_checklist:
-        required_items = db.query(ChecklistTemplateItem).filter(
-            ChecklistTemplateItem.day_id == day.id,
-            ChecklistTemplateItem.is_required == True,
-            ChecklistTemplateItem.active == True
-        ).all()
-
-        if required_items:
-            required_ids = [item.id for item in required_items]
-            completed_completions = db.query(ChecklistCompletion).filter(
-                ChecklistCompletion.enrollment_id == enrollment.id,
-                ChecklistCompletion.item_id.in_(required_ids),
-                ChecklistCompletion.completed == True
-            ).all()
-            completed_ids = {c.item_id for c in completed_completions}
-            
-            missing = len(required_ids) - len(completed_ids)
-            if missing > 0:
-                pending_reasons.append(f"{missing} required checklist item(s) pending")
+    if should_check_checklist and required_items:
+        required_ids = [item.id for item in required_items]
+        completed_count = sum(1 for iid in required_ids if iid in completed_item_ids)
+        missing = len(required_ids) - completed_count
+        if missing > 0:
+            pending_reasons.append(f"{missing} required checklist item(s) pending")
 
     # 2. Task Submission Requirements
-    tasks = db.query(DailyTask).filter(DailyTask.day_id == day.id).all()
     has_required_task = bool(day.require_task_submission or ("task" in custom_reqs))
-
     if has_required_task and tasks:
         task_ids = [t.id for t in tasks if t.is_required or day.require_task_submission]
-        submissions = db.query(TaskSubmission).filter(
-            TaskSubmission.enrollment_id == enrollment.id,
-            TaskSubmission.task_id.in_(task_ids)
-        ).all()
-        
-        sub_by_task = {s.task_id: s for s in submissions}
         for tid in task_ids:
-            sub = sub_by_task.get(tid)
+            sub = task_subs_by_task.get(tid)
             if not sub:
                 pending_reasons.append("Task assignment submission required")
             elif day.require_approval and sub.status != "accepted":
@@ -195,12 +55,6 @@ def evaluate_day_completion(db: Session, enrollment: Enrollment, day: LearningDa
     # 3. Google Drive Evidence Submission Requirements
     requires_drive = day.require_google_drive_submission or ("google_drive" in custom_reqs)
     if requires_drive:
-        latest_drive = db.query(GoogleDriveSubmission).filter(
-            GoogleDriveSubmission.enrollment_id == enrollment.id,
-            GoogleDriveSubmission.day_id == day.id,
-            GoogleDriveSubmission.is_latest == True
-        ).first()
-
         if not latest_drive:
             pending_reasons.append("Google Drive submission link required")
         elif latest_drive.status == "rejected":
@@ -208,30 +62,288 @@ def evaluate_day_completion(db: Session, enrollment: Enrollment, day: LearningDa
 
     # 4. Explicit teacher/admin approval requirement
     if day.require_approval or ("approval" in custom_reqs):
-        progress = db.query(DayProgress).filter(
-            DayProgress.enrollment_id == enrollment.id,
-            DayProgress.day_id == day.id
-        ).first()
-        if not progress or not progress.approved_at:
-            # If neither task nor drive covered approval
+        if not day_progress or not day_progress.approved_at:
             if not has_required_task and not requires_drive:
                 pending_reasons.append("Teacher/Admin sign-off approval required")
 
     return (len(pending_reasons) == 0, pending_reasons)
 
-def check_and_update_day_progress(db: Session, enrollment: Enrollment, day: LearningDay, actor: User) -> bool:
+
+def get_program_tracks_days_status(
+    db: Session,
+    enrollment: Enrollment,
+    tracks: List[LearningTrack],
+) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Batches queries across all given tracks to compute sequential day status without N+1 round trips.
+    """
+    if not tracks:
+        return {}
+
+    track_ids = [t.id for t in tracks]
+    all_days = (
+        db.query(LearningDay)
+        .filter(LearningDay.track_id.in_(track_ids))
+        .order_by(LearningDay.day_number.asc())
+        .all()
+    )
+    days_by_track: Dict[str, List[LearningDay]] = defaultdict(list)
+    for d in all_days:
+        days_by_track[d.track_id].append(d)
+
+    day_ids = [d.id for d in all_days]
+    progress_records = db.query(DayProgress).filter(
+        DayProgress.enrollment_id == enrollment.id
+    ).all()
+    progress_by_day = {p.day_id: p for p in progress_records}
+
+    required_items_by_day: Dict[str, List[ChecklistTemplateItem]] = defaultdict(list)
+    completed_item_ids: set = set()
+    tasks_by_day: Dict[str, List[DailyTask]] = defaultdict(list)
+    task_subs_by_task: Dict[str, TaskSubmission] = {}
+    latest_drive_by_day: Dict[str, GoogleDriveSubmission] = {}
+    user_names_by_id: Dict[str, str] = {}
+
+    if day_ids:
+        req_items = (
+            db.query(ChecklistTemplateItem)
+            .filter(
+                ChecklistTemplateItem.day_id.in_(day_ids),
+                ChecklistTemplateItem.is_required == True,
+                ChecklistTemplateItem.active == True,
+            )
+            .all()
+        )
+        req_item_ids = [item.id for item in req_items]
+        for item in req_items:
+            required_items_by_day[item.day_id].append(item)
+
+        if req_item_ids:
+            completed_item_ids = {
+                c.item_id
+                for c in db.query(ChecklistCompletion)
+                .filter(
+                    ChecklistCompletion.enrollment_id == enrollment.id,
+                    ChecklistCompletion.item_id.in_(req_item_ids),
+                    ChecklistCompletion.completed == True,
+                )
+                .all()
+            }
+
+        all_tasks = db.query(DailyTask).filter(DailyTask.day_id.in_(day_ids)).all()
+        all_task_ids = [t.id for t in all_tasks]
+        for t in all_tasks:
+            tasks_by_day[t.day_id].append(t)
+
+        if all_task_ids:
+            for sub in (
+                db.query(TaskSubmission)
+                .filter(
+                    TaskSubmission.enrollment_id == enrollment.id,
+                    TaskSubmission.task_id.in_(all_task_ids),
+                )
+                .all()
+            ):
+                task_subs_by_task[sub.task_id] = sub
+
+        for drive in (
+            db.query(GoogleDriveSubmission)
+            .filter(
+                GoogleDriveSubmission.enrollment_id == enrollment.id,
+                GoogleDriveSubmission.day_id.in_(day_ids),
+                GoogleDriveSubmission.is_latest == True,
+            )
+            .all()
+        ):
+            latest_drive_by_day[drive.day_id] = drive
+
+        unlocked_by_ids = {p.unlocked_by_id for p in progress_records if p.unlocked_by_id}
+        if unlocked_by_ids:
+            for u in db.query(User).filter(User.id.in_(unlocked_by_ids)).all():
+                user_names_by_id[u.id] = u.full_name
+
+    result_by_track: Dict[str, List[Dict[str, Any]]] = {}
+    for track in tracks:
+        days_status = []
+        prev_day_completed = True
+        for idx, day in enumerate(days_by_track.get(track.id, [])):
+            prog = progress_by_day.get(day.id)
+            is_completed = bool(prog and prog.is_completed)
+            is_manually_unlocked = bool(prog and prog.is_manually_unlocked)
+
+            delay_hours = day.unlock_delay_hours if day.unlock_delay_hours is not None else 24.0
+            unlock_mode = day.unlock_mode or "both"
+
+            next_unlock_time: Optional[datetime] = None
+            remaining_seconds = 0
+            if idx == 0:
+                is_unlocked = True
+            elif is_manually_unlocked or prev_day_completed:
+                is_unlocked = True
+            else:
+                is_unlocked = False
+
+            latest_drive = latest_drive_by_day.get(day.id)
+            day_tasks = tasks_by_day.get(day.id, [])
+
+            if is_completed:
+                day_status = "completed"
+            elif is_unlocked:
+                has_pending_review = bool(
+                    latest_drive and latest_drive.status in ("submitted", "under_review")
+                )
+                if not has_pending_review and day_tasks:
+                    for t in day_tasks:
+                        sub = task_subs_by_task.get(t.id)
+                        if sub and sub.status in ("submitted", "under_review"):
+                            has_pending_review = True
+                            break
+                day_status = "pending_review" if has_pending_review else "available"
+            else:
+                day_status = "locked"
+
+            _, pending_reasons = evaluate_day_completion_data(
+                day=day,
+                required_items=required_items_by_day.get(day.id, []),
+                completed_item_ids=completed_item_ids,
+                tasks=day_tasks,
+                task_subs_by_task=task_subs_by_task,
+                latest_drive=latest_drive,
+                day_progress=prog,
+            )
+
+            unlocked_by_user = user_names_by_id.get(prog.unlocked_by_id) if (prog and prog.unlocked_by_id) else None
+
+            days_status.append({
+                "day": day,
+                "status": day_status,
+                "is_completed": is_completed,
+                "completed_at": prog.completed_at.isoformat() if (prog and prog.completed_at) else None,
+                "is_unlocked": is_unlocked,
+                "next_unlock_time": next_unlock_time.isoformat() if next_unlock_time else None,
+                "remaining_seconds": remaining_seconds,
+                "unlock_delay_hours": delay_hours,
+                "unlock_mode": unlock_mode,
+                "is_manually_unlocked": is_manually_unlocked,
+                "unlocked_by_name": unlocked_by_user,
+                "unlock_reason": prog.unlock_reason if prog else None,
+                "pending_reasons": pending_reasons,
+                "progress": {
+                    "summary_viewed": getattr(prog, "summary_viewed", False) if prog else False,
+                    "telugu_summary_viewed": getattr(prog, "telugu_summary_viewed", False) if prog else False,
+                    "english_summary_viewed": getattr(prog, "english_summary_viewed", False) if prog else False,
+                    "video_watched": getattr(prog, "video_watched", False) if prog else False,
+                    "flashcards_completed": getattr(prog, "flashcards_completed", False) if prog else False,
+                    "quiz_completed": getattr(prog, "quiz_completed", False) if prog else False,
+                    "quiz_score": getattr(prog, "quiz_score", None) if prog else None,
+                    "assignment_completed": getattr(prog, "assignment_completed", False) if prog else False,
+                }
+            })
+
+            prev_day_completed = is_completed
+
+        result_by_track[track.id] = days_status
+
+    return result_by_track
+
+
+def get_track_days_status(db: Session, enrollment: Enrollment, track: LearningTrack) -> List[Dict[str, Any]]:
+    """Computes sequential day status for all days in a single track."""
+    return get_program_tracks_days_status(db, enrollment, [track]).get(track.id, [])
+
+
+def evaluate_day_completion(
+    db: Session,
+    enrollment: Enrollment,
+    day: LearningDay,
+    known_latest_drive: Optional[GoogleDriveSubmission] = None,
+    known_day_progress: Optional[DayProgress] = None,
+) -> Tuple[bool, List[str]]:
+    """Evaluates whether all mandatory completion requirements for a single day are satisfied."""
+    required_items = db.query(ChecklistTemplateItem).filter(
+        ChecklistTemplateItem.day_id == day.id,
+        ChecklistTemplateItem.is_required == True,
+        ChecklistTemplateItem.active == True,
+    ).all()
+    completed_item_ids: set = set()
+    if required_items:
+        required_ids = [item.id for item in required_items]
+        completed_item_ids = {
+            c.item_id
+            for c in db.query(ChecklistCompletion).filter(
+                ChecklistCompletion.enrollment_id == enrollment.id,
+                ChecklistCompletion.item_id.in_(required_ids),
+                ChecklistCompletion.completed == True,
+            ).all()
+        }
+
+    tasks = db.query(DailyTask).filter(DailyTask.day_id == day.id).all()
+    task_subs_by_task: Dict[str, TaskSubmission] = {}
+    if tasks:
+        task_ids = [t.id for t in tasks]
+        for s in db.query(TaskSubmission).filter(
+            TaskSubmission.enrollment_id == enrollment.id,
+            TaskSubmission.task_id.in_(task_ids),
+        ).all():
+            task_subs_by_task[s.task_id] = s
+
+    latest_drive = known_latest_drive if known_latest_drive is not None else db.query(GoogleDriveSubmission).filter(
+        GoogleDriveSubmission.enrollment_id == enrollment.id,
+        GoogleDriveSubmission.day_id == day.id,
+        GoogleDriveSubmission.is_latest == True,
+    ).first()
+
+    day_progress = known_day_progress if known_day_progress is not None else db.query(DayProgress).filter(
+        DayProgress.enrollment_id == enrollment.id,
+        DayProgress.day_id == day.id,
+    ).first()
+
+    return evaluate_day_completion_data(
+        day=day,
+        required_items=required_items,
+        completed_item_ids=completed_item_ids,
+        tasks=tasks,
+        task_subs_by_task=task_subs_by_task,
+        latest_drive=latest_drive,
+        day_progress=day_progress,
+    )
+
+def check_and_update_day_progress(
+    db: Session,
+    enrollment: Enrollment,
+    day: LearningDay,
+    actor: User,
+    commit: bool = True,
+    known_latest_drive: Optional[GoogleDriveSubmission] = None,
+) -> bool:
     """
     Checks if day is eligible for completion, updates DayProgress in a transaction,
-    and returns whether the day was just marked completed.
+    and returns whether the day is now completed.
     """
-    is_satisfied, reasons = evaluate_day_completion(db, enrollment, day)
-    
     progress = db.query(DayProgress).filter(
         DayProgress.enrollment_id == enrollment.id,
         DayProgress.day_id == day.id
     ).first()
 
+    # Fast path: if already completed and latest drive was not rejected, completion stays True
+    if (
+        progress
+        and progress.is_completed
+        and known_latest_drive is not None
+        and known_latest_drive.status != "rejected"
+    ):
+        return True
+
+    is_satisfied, _reasons = evaluate_day_completion(
+        db,
+        enrollment,
+        day,
+        known_latest_drive=known_latest_drive,
+        known_day_progress=progress,
+    )
+
     if is_satisfied:
+        was_completed = bool(progress and progress.is_completed)
         if not progress:
             progress = DayProgress(
                 enrollment_id=enrollment.id,
@@ -243,28 +355,28 @@ def check_and_update_day_progress(db: Session, enrollment: Enrollment, day: Lear
         elif not progress.is_completed:
             progress.is_completed = True
             progress.completed_at = datetime.utcnow()
-        
-        db.commit()
 
-        # Log audit
-        log_audit(
-            db=db,
-            actor=actor,
-            action="DAY_COMPLETED",
-            target_type="learning_day",
-            target_id=day.id,
-            details=f"Day {day.day_number}: {day.title} completed by student {enrollment.student_id}"
-        )
-
-        # Notify assigned employee if student finished
-        if enrollment.employee_id:
-            emp_notif = Notification(
-                user_id=enrollment.employee_id,
-                title="Student Day Completed",
-                message=f"Student completed Day {day.day_number}: {day.title}",
-                link=f"/my-students"
+        if not was_completed:
+            log_audit(
+                db=db,
+                actor=actor,
+                action="DAY_COMPLETED",
+                target_type="learning_day",
+                target_id=day.id,
+                details=f"Day {day.day_number}: {day.title} completed by student {enrollment.student_id}",
+                commit=False
             )
-            db.add(emp_notif)
+
+            if enrollment.employee_id:
+                emp_notif = Notification(
+                    user_id=enrollment.employee_id,
+                    title="Student Day Completed",
+                    message=f"Student completed Day {day.day_number}: {day.title}",
+                    link="/my-students"
+                )
+                db.add(emp_notif)
+
+        if commit and not was_completed:
             db.commit()
 
         return True
@@ -273,7 +385,8 @@ def check_and_update_day_progress(db: Session, enrollment: Enrollment, day: Lear
         if progress and progress.is_completed:
             progress.is_completed = False
             progress.completed_at = None
-            db.commit()
+            if commit:
+                db.commit()
         return False
 
 def manual_unlock_day(db: Session, enrollment: Enrollment, day: LearningDay, actor: User, reason: str) -> DayProgress:
@@ -412,28 +525,58 @@ def verify_student_day_access(db: Session, student_id: str, day_id: str) -> Tupl
 
     return (enrollment, day)
 
-def calculate_enrollment_progress(db: Session, enrollment: Enrollment) -> int:
-    """
-    Calculates overall enrollment completion percentage based on total days across all active tracks.
-    """
-    tracks = db.query(LearningTrack).filter(
-        LearningTrack.program_id == enrollment.program_id,
-        LearningTrack.active == True
+def calculate_enrollments_progress_map(db: Session, enrollments: List[Enrollment]) -> Dict[str, int]:
+    """Calculates completion percentage for a batch of enrollments without per-track query loops."""
+    if not enrollments:
+        return {}
+
+    program_ids = list({e.program_id for e in enrollments})
+    enrollment_ids = [e.id for e in enrollments]
+
+    track_rows = db.query(LearningTrack.id, LearningTrack.program_id).filter(
+        LearningTrack.program_id.in_(program_ids),
+        LearningTrack.active == True,
     ).all()
+    track_to_prog = {t_id: p_id for t_id, p_id in track_rows}
+    track_ids = list(track_to_prog.keys())
 
-    total_days = 0
-    for t in tracks:
-        total_days += db.query(LearningDay).filter(LearningDay.track_id == t.id).count()
+    total_days_by_program: Dict[str, int] = defaultdict(int)
+    if track_ids:
+        day_counts = (
+            db.query(LearningDay.track_id, func.count(LearningDay.id))
+            .filter(LearningDay.track_id.in_(track_ids))
+            .group_by(LearningDay.track_id)
+            .all()
+        )
+        for t_id, cnt in day_counts:
+            p_id = track_to_prog.get(t_id)
+            if p_id:
+                total_days_by_program[p_id] += cnt
 
-    if total_days == 0:
-        return 0
+    completed_by_enrollment = dict(
+        db.query(DayProgress.enrollment_id, func.count(DayProgress.id))
+        .filter(
+            DayProgress.enrollment_id.in_(enrollment_ids),
+            DayProgress.is_completed == True,
+        )
+        .group_by(DayProgress.enrollment_id)
+        .all()
+    )
 
-    completed_days = db.query(DayProgress).filter(
-        DayProgress.enrollment_id == enrollment.id,
-        DayProgress.is_completed == True
-    ).count()
+    progress_map: Dict[str, int] = {}
+    for e in enrollments:
+        total_days = total_days_by_program.get(e.program_id, 0)
+        if total_days == 0:
+            progress_map[e.id] = 0
+        else:
+            completed_days = completed_by_enrollment.get(e.id, 0)
+            progress_map[e.id] = min(100, int((completed_days / total_days) * 100))
+    return progress_map
 
-    return min(100, int((completed_days / total_days) * 100))
+
+def calculate_enrollment_progress(db: Session, enrollment: Enrollment) -> int:
+    """Calculates overall enrollment completion percentage based on total days across all active tracks."""
+    return calculate_enrollments_progress_map(db, [enrollment]).get(enrollment.id, 0)
 
 def record_student_activity_attendance(db: Session, student_id: str, program_id: Optional[str] = None):
     """

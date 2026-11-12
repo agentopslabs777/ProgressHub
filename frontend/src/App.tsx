@@ -38,7 +38,13 @@ import { PaymentHistoryPage } from '@/pages/student/PaymentHistoryPage';
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      retry: false,
+      retry: (failureCount, error: any) => {
+        const status = error?.status;
+        if (status === 400 || status === 401 || status === 403 || status === 404 || status === 422) {
+          return false;
+        }
+        return failureCount < 1;
+      },
       refetchOnWindowFocus: false,
       staleTime: 5000
     }

@@ -64,6 +64,7 @@ function AdminDayReviewCard({ day, studentId, onReviewSaved }: AdminDayReviewCar
       setTimeout(() => setSuccessMsg(''), 7000);
     },
     onError: (err: any) => {
+      setSuccessMsg('');
       setErrorMsg(err.message || 'Failed to submit review');
     }
   });
@@ -423,9 +424,9 @@ export function StudentReviewsPage() {
   const handleAdminReviewSaved = () => {
     queryClient.invalidateQueries({ queryKey: ['admin_student_progress'] });
     queryClient.invalidateQueries({ queryKey: ['reviews_spreadsheet'] });
-    queryClient.invalidateQueries({ queryKey: ['reviews_overview'] });
-    queryClient.invalidateQueries({ queryKey: ['student_day'] });
-    queryClient.invalidateQueries({ queryKey: ['wallet'] });
+    queryClient.invalidateQueries({ queryKey: ['reviews_overview'], refetchType: 'none' });
+    queryClient.invalidateQueries({ queryKey: ['student_day'], refetchType: 'none' });
+    queryClient.invalidateQueries({ queryKey: ['wallet'], refetchType: 'none' });
   };
 
   const handleExportCsv = () => {

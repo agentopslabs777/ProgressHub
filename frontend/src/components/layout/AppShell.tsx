@@ -5,9 +5,10 @@ import {
   LayoutDashboard, Users, GraduationCap, Layers, BookOpen,
   ClipboardList, MessageSquare,
   ShieldAlert, Bell, LogOut, Menu, X, ChevronRight, Sparkles,
-  FileSpreadsheet, Gift, Wallet, CreditCard, ShoppingBag, Receipt, Award
+  FileSpreadsheet, Gift, Wallet, CreditCard, ShoppingBag, Receipt, Award, KeyRound
 } from 'lucide-react';
 import { User, authApi, notificationsApi } from '@/services/api';
+import { Modal } from '@/components/common/UIComponents';
 
 interface AppShellProps {
   user: User;
@@ -18,7 +19,31 @@ export function AppShell({ user, children }: AppShellProps) {
   const [location, setLocation] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [notifsOpen, setNotifsOpen] = useState(false);
+  const [changePwOpen, setChangePwOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [pwError, setPwError] = useState('');
+  const [pwSuccess, setPwSuccess] = useState('');
   const queryClient = useQueryClient();
+
+  const changePasswordMutation = useMutation({
+    mutationFn: () => authApi.changePassword(currentPassword, newPassword),
+    onSuccess: () => {
+      setPwError('');
+      setPwSuccess('Admin password updated successfully.');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setTimeout(() => {
+        setChangePwOpen(false);
+        setPwSuccess('');
+      }, 1200);
+    },
+    onError: (err: any) => {
+      setPwError(err?.message || 'Failed to update password');
+    }
+  });
 
   const { data: notifications = [] } = useQuery({
     queryKey: ['notifications'],
@@ -130,13 +155,31 @@ export function AppShell({ user, children }: AppShellProps) {
                 <div className="text-[10px] text-[#718079] capitalize">{user.role}</div>
               </div>
             </div>
-            <button
-              onClick={handleSignOut}
-              className="rounded-lg p-1.5 text-[#708077] hover:bg-[#d8e2d8] hover:text-[#21352e]"
-              title="Sign out"
-            >
-              <LogOut size={15} />
-            </button>
+            <div className="flex items-center gap-1">
+              {user.role === 'admin' && (
+                <button
+                  onClick={() => {
+                    setPwError('');
+                    setPwSuccess('');
+                    setCurrentPassword('');
+                    setNewPassword('');
+                    setConfirmPassword('');
+                    setChangePwOpen(true);
+                  }}
+                  className="rounded-lg p-1.5 text-[#708077] hover:bg-[#d8e2d8] hover:text-[#21352e]"
+                  title="Change Admin Password"
+                >
+                  <KeyRound size={15} />
+                </button>
+              )}
+              <button
+                onClick={handleSignOut}
+                className="rounded-lg p-1.5 text-[#708077] hover:bg-[#d8e2d8] hover:text-[#21352e]"
+                title="Sign out"
+              >
+                <LogOut size={15} />
+              </button>
+            </div>
           </div>
         </div>
       </aside>
@@ -247,6 +290,90 @@ export function AppShell({ user, children }: AppShellProps) {
           <div className="enter">{children}</div>
         </main>
       </div>
+
+      {changePwOpen && user.role === 'admin' && (
+        <Modal title="Change Admin Password" onClose={() => setChangePwOpen(false)} maxWidth="max-w-md">
+          {pwError && (
+            <div className="mb-3 rounded-lg bg-[#faecea] p-2.5 text-xs font-medium text-[#b8483d]">
+              {pwError}
+            </div>
+          )}
+          {pwSuccess && (
+            <div className="mb-3 rounded-lg bg-[#eaf6ee] p-2.5 text-xs font-medium text-[#216e43]">
+              {pwSuccess}
+            </div>
+          )}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              setPwError('');
+              setPwSuccess('');
+              if (newPassword.trim().length < 6) {
+                setPwError('New password must be at least 6 characters.');
+                return;
+              }
+              if (newPassword !== confirmPassword) {
+                setPwError('New password and confirmation do not match.');
+                return;
+              }
+              changePasswordMutation.mutate();
+            }}
+            className="space-y-3.5"
+          >
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-[#4a5952]">Current Password</label>
+              <input
+                type="password"
+                required
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                placeholder="Enter current admin password"
+                className="field text-xs"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-[#4a5952]">New Password (min 6 chars)</label>
+              <input
+                type="password"
+                required
+                minLength={6}
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Enter new password"
+                className="field text-xs"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-[#4a5952]">Confirm New Password</label>
+              <input
+                type="password"
+                required
+                minLength={6}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="Re-enter new password"
+                className="field text-xs"
+              />
+            </div>
+            <div className="mt-5 flex justify-end gap-2 border-t border-[#edf0ea] pt-3">
+              <button
+                type="button"
+                className="btn btn-soft text-xs"
+                onClick={() => setChangePwOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={changePasswordMutation.isPending}
+                className="btn btn-primary text-xs"
+              >
+                {changePasswordMutation.isPending ? 'Updating…' : 'Update Password'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </div>
   );
 }

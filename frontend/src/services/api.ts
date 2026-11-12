@@ -47,54 +47,115 @@ export const tokenStorage = {
   }
 };
 
+let activeRefreshPromise: Promise<string | null> | null = null;
+
+async function refreshAccessToken(): Promise<string | null> {
+  if (activeRefreshPromise) {
+    return activeRefreshPromise;
+  }
+  const refreshToken = tokenStorage.getRefreshToken();
+  if (!refreshToken) return null;
+
+  activeRefreshPromise = (async () => {
+    try {
+      const refreshRes = await fetch(`${API_BASE}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+      if (!refreshRes.ok) {
+        return null;
+      }
+      const newTokens = await refreshRes.json();
+      tokenStorage.setTokens(newTokens.access_token, newTokens.refresh_token);
+      return newTokens.access_token as string;
+    } catch {
+      return null;
+    } finally {
+      activeRefreshPromise = null;
+    }
+  })();
+
+  return activeRefreshPromise;
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const token = tokenStorage.getAccessToken();
-  const headers: Record<string, string> = {
-    'Accept': 'application/json',
-    ...(options.headers as Record<string, string> || {}),
+  const method = (options.method || 'GET').toUpperCase();
+  const isIdempotentGet = method === 'GET';
+  const maxAttempts = isIdempotentGet ? 3 : 1;
+
+  const buildHeaders = (overrideToken?: string) => {
+    const token = overrideToken ?? tokenStorage.getAccessToken();
+    const headers: Record<string, string> = {
+      'Accept': 'application/json',
+      ...(options.headers as Record<string, string> || {}),
+    };
+    if (token && (overrideToken || !headers['Authorization'])) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    if (!(options.body instanceof FormData) && !headers['Content-Type']) {
+      headers['Content-Type'] = 'application/json';
+    }
+    return headers;
   };
 
-  if (token && !headers['Authorization']) {
-    headers['Authorization'] = `Bearer ${token}`;
+  let response: Response | null = null;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      response = await fetch(`${API_BASE}${endpoint}`, {
+        ...options,
+        headers: buildHeaders(),
+      });
+      if (isIdempotentGet && [502, 503, 504].includes(response.status) && attempt < maxAttempts - 1) {
+        await sleep(attempt === 0 ? 450 : 1100);
+        continue;
+      }
+      break;
+    } catch (err) {
+      if (attempt < maxAttempts - 1) {
+        await sleep(attempt === 0 ? 450 : 1100);
+        continue;
+      }
+      throw new ApiError(
+        0,
+        'Unable to reach the platform API server. Please check your connection or ensure the backend server is running and try again.',
+        { cause: err }
+      );
+    }
   }
 
-  if (!(options.body instanceof FormData) && !headers['Content-Type']) {
-    headers['Content-Type'] = 'application/json';
+  if (!response) {
+    throw new ApiError(0, 'No response received from the platform API server.');
   }
-
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    ...options,
-    headers,
-  });
 
   if (response.status === 401 && !endpoint.includes('/auth/login') && !endpoint.includes('/auth/refresh')) {
-    // Try refreshing token
-    const refreshToken = tokenStorage.getRefreshToken();
-    if (refreshToken) {
+    const newAccessToken = await refreshAccessToken();
+    if (newAccessToken) {
+      let retryRes: Response;
       try {
-        const refreshRes = await fetch(`${API_BASE}/auth/refresh`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refresh_token: refreshToken })
+        retryRes = await fetch(`${API_BASE}${endpoint}`, {
+          ...options,
+          headers: buildHeaders(newAccessToken),
         });
-        if (refreshRes.ok) {
-          const newTokens = await refreshRes.json();
-          tokenStorage.setTokens(newTokens.access_token, newTokens.refresh_token);
-          headers['Authorization'] = `Bearer ${newTokens.access_token}`;
-          const retryRes = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
-          if (!retryRes.ok) {
-            const err = await retryRes.json().catch(() => ({}));
-            throw new ApiError(retryRes.status, err.detail || 'Request failed', err);
-          }
-          return retryRes.json();
-        }
-      } catch (e) {
-        tokenStorage.clear();
-        window.location.href = '/login';
+      } catch (err) {
+        throw new ApiError(
+          0,
+          'Unable to reach the platform API server after refreshing your session. Please try again.',
+          { cause: err }
+        );
       }
+      if (!retryRes.ok) {
+        const err = await retryRes.json().catch(() => ({}));
+        throw new ApiError(retryRes.status, err.detail || `Request failed (HTTP ${retryRes.status})`, err);
+      }
+      return retryRes.json();
     }
     tokenStorage.clear();
-    window.location.href = '/login';
+    if (window.location.pathname !== '/login') {
+      window.location.href = '/login';
+    }
     throw new ApiError(401, 'Session expired. Please log in again.');
   }
 
@@ -156,6 +217,12 @@ export const authApi = {
   },
   me: async (): Promise<User> => {
     return request<User>('/auth/me');
+  },
+  changePassword: async (currentPassword: string, newPassword: string): Promise<{ message: string }> => {
+    return request<{ message: string }>('/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword })
+    });
   }
 };
 

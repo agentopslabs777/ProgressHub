@@ -119,17 +119,44 @@ export function MyStudentsPage() {
       const extra = res?.additional_reward_points ? ` (+${res.additional_reward_points} pts added to student wallet)` : '';
       setReviewSuccessMsg(`Evaluation and score saved successfully!${extra}`);
       setReviewErrorMsg('');
-      queryClient.invalidateQueries({ queryKey: ['employee_student_day_detail'] });
-      queryClient.invalidateQueries({ queryKey: ['employee_student_progress'] });
-      queryClient.invalidateQueries({ queryKey: ['my_assigned_enrollments'] });
-      queryClient.invalidateQueries({ queryKey: ['student_day'] });
-      queryClient.invalidateQueries({ queryKey: ['student_program_progress'] });
-      queryClient.invalidateQueries({ queryKey: ['wallet'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      queryClient.invalidateQueries({ queryKey: ['my_programs'] });
+
+      // Immediately patch day detail cache so verdict/score banner updates at 0ms
+      if (activeDay?.id && currentEnrollment?.studentId && res) {
+        queryClient.setQueryData(
+          ['employee_student_day_detail', activeDay.id, currentEnrollment.studentId],
+          (old: any) => {
+            if (!old || !old.google_drive_submission) return old;
+            return {
+              ...old,
+              is_completed: res.day_is_completed ?? old.is_completed,
+              google_drive_submission: {
+                ...old.google_drive_submission,
+                status: res.status ?? old.google_drive_submission.status,
+                rating: res.rating ?? old.google_drive_submission.rating,
+                review_comments: res.review_comments ?? old.google_drive_submission.review_comments,
+                additional_reward_points:
+                  res.additional_reward_points ?? old.google_drive_submission.additional_reward_points,
+                base_reward_points:
+                  res.base_reward_points ?? old.google_drive_submission.base_reward_points,
+                reviewed_at: res.reviewed_at || new Date().toISOString(),
+              },
+            };
+          }
+        );
+      }
+
+      // Only actively refetch the current day & student's progress; mark off-page caches stale cleanly
+      queryClient.invalidateQueries({ queryKey: ['employee_student_progress', currentEnrollment?.programId, currentEnrollment?.studentId] });
+      queryClient.invalidateQueries({ queryKey: ['my_assigned_enrollments'], refetchType: 'none' });
+      queryClient.invalidateQueries({ queryKey: ['student_day'], refetchType: 'none' });
+      queryClient.invalidateQueries({ queryKey: ['student_program_progress'], refetchType: 'none' });
+      queryClient.invalidateQueries({ queryKey: ['wallet'], refetchType: 'none' });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'], refetchType: 'none' });
+      queryClient.invalidateQueries({ queryKey: ['my_programs'], refetchType: 'none' });
       setTimeout(() => setReviewSuccessMsg(''), 7000);
     },
     onError: (err: any) => {
+      setReviewSuccessMsg('');
       setReviewErrorMsg(err.message || 'Failed to submit review');
     }
   });

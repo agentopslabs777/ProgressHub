@@ -6,13 +6,13 @@ import { studentApi } from '@/services/api';
 import { PageTitle, EmptyState, LoadingState, ErrorState } from '@/components/common/UIComponents';
 
 export function MyProgramsPage() {
-  const { data: programs = [], isLoading, isError, refetch } = useQuery({
+  const { data: programs = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['my_programs'],
     queryFn: studentApi.getMyPrograms
   });
 
   if (isLoading) return <LoadingState label="Loading your assigned programs" />;
-  if (isError) return <ErrorState retry={() => refetch()} />;
+  if (isError) return <ErrorState error={(error as Error)?.message} retry={() => refetch()} />;
 
   return (
     <div>

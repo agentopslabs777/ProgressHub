@@ -180,6 +180,8 @@ def update_employee(
     if data.full_name:
         emp.full_name = data.full_name.strip()
     if data.password:
+        if len(data.password.strip()) < 6:
+            raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
         emp.password_hash = get_password_hash(data.password)
     if data.contact_number is not None:
         emp.contact_number = data.contact_number
@@ -197,7 +199,7 @@ def update_employee(
         action="UPDATE_EMPLOYEE",
         target_type="employee",
         target_id=emp.id,
-        details=f"Employee {emp.full_name} updated"
+        details=f"Employee {emp.full_name} updated" + (" (password changed)" if data.password else "")
     )
 
     return UserResponse.model_validate(emp)

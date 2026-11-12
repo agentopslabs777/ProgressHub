@@ -1,6 +1,7 @@
 import io
 import csv
 import re
+from collections import defaultdict
 from typing import List, Optional
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
@@ -56,10 +57,25 @@ def list_programs(
         query = query.filter((Program.id.in_(pids)) | (func.lower(func.trim(Program.status)) == "published"))
 
     programs = query.order_by(Program.created_at.desc()).all()
+    if not programs:
+        return []
+
+    program_ids = [p.id for p in programs]
+    track_counts = dict(
+        db.query(LearningTrack.program_id, func.count(LearningTrack.id))
+        .filter(LearningTrack.program_id.in_(program_ids), LearningTrack.active == True)
+        .group_by(LearningTrack.program_id)
+        .all()
+    )
+    enrollment_counts = dict(
+        db.query(Enrollment.program_id, func.count(Enrollment.id))
+        .filter(Enrollment.program_id.in_(program_ids), Enrollment.status == "active")
+        .group_by(Enrollment.program_id)
+        .all()
+    )
+
     results = []
     for p in programs:
-        t_count = db.query(LearningTrack).filter(LearningTrack.program_id == p.id, LearningTrack.active == True).count()
-        e_count = db.query(Enrollment).filter(Enrollment.program_id == p.id, Enrollment.status == "active").count()
         results.append({
             "id": p.id,
             "name": p.name,
@@ -73,8 +89,8 @@ def list_programs(
             "eligible_for_referral": getattr(p, "eligible_for_referral", True),
             "created_at": p.created_at,
             "createdAt": p.created_at,
-            "trackCount": t_count,
-            "enrollmentCount": e_count
+            "trackCount": track_counts.get(p.id, 0),
+            "enrollmentCount": enrollment_counts.get(p.id, 0),
         })
     return results
 
@@ -141,28 +157,57 @@ def get_program_details(
         LearningTrack.active == True
     ).order_by(LearningTrack.position.asc()).all()
 
+    track_ids = [t.id for t in tracks]
+    days_by_track = defaultdict(list)
+    items_by_day = defaultdict(list)
+    tasks_by_day = defaultdict(list)
+    resources_by_day = defaultdict(list)
+    flashcards_by_day = defaultdict(list)
+
+    if track_ids:
+        all_days = (
+            db.query(LearningDay)
+            .filter(LearningDay.track_id.in_(track_ids))
+            .order_by(LearningDay.day_number.asc())
+            .all()
+        )
+        day_ids = [d.id for d in all_days]
+        for d in all_days:
+            days_by_track[d.track_id].append(d)
+
+        if day_ids:
+            for item in (
+                db.query(ChecklistTemplateItem)
+                .filter(ChecklistTemplateItem.day_id.in_(day_ids))
+                .order_by(ChecklistTemplateItem.display_order.asc())
+                .all()
+            ):
+                items_by_day[item.day_id].append(ChecklistItemResponse.model_validate(item).dict())
+
+            for tsk in db.query(DailyTask).filter(DailyTask.day_id.in_(day_ids)).all():
+                tasks_by_day[tsk.day_id].append(DailyTaskResponse.model_validate(tsk).dict())
+
+            for res in (
+                db.query(LearningResource)
+                .filter(LearningResource.day_id.in_(day_ids), LearningResource.active == True)
+                .order_by(LearningResource.display_order.asc())
+                .all()
+            ):
+                resources_by_day[res.day_id].append(LearningResourceResponse.model_validate(res).dict())
+
+            for fc in (
+                db.query(Flashcard)
+                .filter(Flashcard.day_id.in_(day_ids), Flashcard.active == True)
+                .order_by(Flashcard.display_order.asc())
+                .all()
+            ):
+                flashcards_by_day[fc.day_id].append(FlashcardResponse.model_validate(fc).dict())
+
     tracks_data = []
     for t in tracks:
-        days = db.query(LearningDay).filter(
-            LearningDay.track_id == t.id
-        ).order_by(LearningDay.day_number.asc()).all()
-
         days_data = []
-        for d in days:
-            items = db.query(ChecklistTemplateItem).filter(
-                ChecklistTemplateItem.day_id == d.id
-            ).order_by(ChecklistTemplateItem.display_order.asc()).all()
-
-            tasks = db.query(DailyTask).filter(DailyTask.day_id == d.id).all()
-            resources = db.query(LearningResource).filter(
-                LearningResource.day_id == d.id,
-                LearningResource.active == True
-            ).order_by(LearningResource.display_order.asc()).all()
-            flashcards = db.query(Flashcard).filter(
-                Flashcard.day_id == d.id,
-                Flashcard.active == True
-            ).order_by(Flashcard.display_order.asc()).all()
-
+        for d in days_by_track.get(t.id, []):
+            serialized_items = items_by_day.get(d.id, [])
             days_data.append({
                 "id": d.id,
                 "track_id": d.track_id,
@@ -184,6 +229,7 @@ def get_program_details(
                 "quizUrl": d.quiz_url,
                 "assignment_url": d.assignment_url,
                 "assignmentUrl": d.assignment_url,
+                "base_reward_points": getattr(d, "base_reward_points", None),
                 "unlock_delay_hours": d.unlock_delay_hours or 24.0,
                 "unlock_mode": d.unlock_mode or "both",
                 "require_google_drive_submission": bool(d.require_google_drive_submission),
@@ -196,11 +242,11 @@ def get_program_details(
                 "requireTaskSubmission": d.require_task_submission,
                 "created_at": d.created_at,
                 "createdAt": d.created_at,
-                "checklist_items": [ChecklistItemResponse.model_validate(i).dict() for i in items],
-                "checklistItems": [ChecklistItemResponse.model_validate(i).dict() for i in items],
-                "tasks": [DailyTaskResponse.model_validate(tsk).dict() for tsk in tasks],
-                "resources": [LearningResourceResponse.model_validate(r).dict() for r in resources],
-                "flashcards": [FlashcardResponse.model_validate(f).dict() for f in flashcards]
+                "checklist_items": serialized_items,
+                "checklistItems": serialized_items,
+                "tasks": tasks_by_day.get(d.id, []),
+                "resources": resources_by_day.get(d.id, []),
+                "flashcards": flashcards_by_day.get(d.id, []),
             })
 
         tracks_data.append({

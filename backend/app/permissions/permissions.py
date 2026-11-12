@@ -61,7 +61,8 @@ def log_audit(
     action: str,
     target_type: str,
     target_id: Optional[str] = None,
-    details: Optional[str] = None
+    details: Optional[str] = None,
+    commit: bool = True
 ):
     try:
         actor_id = actor.id if actor else None
@@ -75,7 +76,8 @@ def log_audit(
             details=details
         )
         db.add(audit)
-        db.commit()
+        if commit:
+            db.commit()
     except Exception as e:
         db.rollback()
         print(f"Error logging audit: {e}")

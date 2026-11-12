@@ -47,7 +47,9 @@ def credit_reward_points(
     related_entity_id: Optional[str] = None,
     created_by_id: Optional[str] = None,
     commit: bool = True,
-    allow_multiple: bool = False
+    allow_multiple: bool = False,
+    config: Optional[RewardConfig] = None,
+    wallet: Optional[RewardWallet] = None
 ) -> RewardTransaction:
     """
     Credits reward points to a student's wallet and records an immutable ledger transaction.
@@ -68,8 +70,10 @@ def credit_reward_points(
         if existing:
             return existing
 
-    config = get_or_create_reward_config(db)
-    wallet = get_or_create_wallet(db, user_id)
+    if config is None:
+        config = get_or_create_reward_config(db)
+    if wallet is None:
+        wallet = get_or_create_wallet(db, user_id)
 
     # 1 point = conversion_rate INR
     amount_inr = points * config.point_to_rupee_ratio

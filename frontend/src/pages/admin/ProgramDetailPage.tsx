@@ -34,7 +34,8 @@ export function ProgramDetailPage() {
   const [assignmentModalOpen, setAssignmentModalOpen] = useState(false);
   const [openDayMenuId, setOpenDayMenuId] = useState<string | null>(null);
 
-  // Expand / collapse state for days (defaults to open)
+  // Expand / collapse state for modules & days (defaults to open)
+  const [expandedTracks, setExpandedTracks] = useState<Record<string, boolean>>({});
   const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({});
 
   const [selectedTrackId, setSelectedTrackId] = useState('');
@@ -77,7 +78,7 @@ export function ProgramDetailPage() {
 
   const [formError, setFormError] = useState('');
 
-  const { data: program, isLoading, isError, refetch } = useQuery({
+  const { data: program, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['program', id],
     queryFn: () => programsApi.get(id),
     enabled: !!id
@@ -167,6 +168,12 @@ export function ProgramDetailPage() {
     onError: (err: any) => alert(err?.message || 'Failed to delete day')
   });
 
+  const normalizeUrl = (val: string) => {
+    const trimmed = val.trim();
+    if (!trimmed) return '';
+    return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  };
+
   const resetDayForm = () => {
     setDayTitle('');
     setDayNumber(undefined);
@@ -189,6 +196,7 @@ export function ProgramDetailPage() {
   };
 
   const populateDayForEdit = (day: any) => {
+    setFormError('');
     setSelectedDayId(day.id);
     setSelectedDay(day);
     setDayTitle(day.title || '');
@@ -208,7 +216,7 @@ export function ProgramDetailPage() {
     setDayApproval(Boolean(day.require_approval));
     setDayTaskRequired(Boolean(day.require_task_submission));
     setDayPublished(Boolean(day.published));
-    setDayPoints(day.reward_points ?? day.rewardPoints ?? 20);
+    setDayPoints(day.base_reward_points ?? day.reward_points ?? day.rewardPoints ?? 20);
 
     setQuizTitle(day.title ? `${day.title} Quiz` : 'Daily Quiz');
     setQuizInstructions(day.description || 'Answer key concept questions based on today\'s lecture.');
@@ -248,8 +256,24 @@ export function ProgramDetailPage() {
     }));
   };
 
+  const toggleExpandTrack = (trackId: string) => {
+    setExpandedTracks(prev => ({
+      ...prev,
+      [trackId]: prev[trackId] === undefined ? false : !prev[trackId]
+    }));
+  };
+
+  const collapseOrExpandAllTracks = (expand: boolean) => {
+    if (!program?.tracks) return;
+    const next: Record<string, boolean> = {};
+    for (const t of program.tracks) {
+      next[t.id] = expand;
+    }
+    setExpandedTracks(next);
+  };
+
   if (isLoading) return <LoadingState label="Loading training program details" />;
-  if (isError || !program) return <ErrorState retry={() => refetch()} />;
+  if (isError || !program) return <ErrorState error={(error as Error)?.message} retry={() => refetch()} />;
 
   const firstTrackId = program.tracks && program.tracks.length > 0 ? program.tracks[0].id : '';
 
@@ -430,22 +454,66 @@ export function ProgramDetailPage() {
 
       {/* CURRICULUM DAYS & MODULES (MATCHING IMAGE 1) */}
       <div className="space-y-6">
+        {program.tracks && program.tracks.length > 0 && (
+          <div className="flex items-center justify-between px-2">
+            <span className="text-xs font-semibold text-[#64748b]">
+              {program.tracks.length} Module{program.tracks.length === 1 ? '' : 's'}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => collapseOrExpandAllTracks(false)}
+                className="text-xs font-semibold text-[#475569] hover:text-[#1e293b] bg-white hover:bg-slate-50 px-2.5 py-1 rounded-md border border-slate-200 transition flex items-center gap-1"
+              >
+                <ChevronUp size={13} /> Hide All Modules
+              </button>
+              <button
+                type="button"
+                onClick={() => collapseOrExpandAllTracks(true)}
+                className="text-xs font-semibold text-[#0047ba] hover:bg-[#eff6ff] bg-white px-2.5 py-1 rounded-md border border-slate-200 transition flex items-center gap-1"
+              >
+                <ChevronDown size={13} /> Show All Modules
+              </button>
+            </div>
+          </div>
+        )}
         {program.tracks && program.tracks.length > 0 ? (
-          program.tracks.map((track: any) => (
+          program.tracks.map((track: any) => {
+            const isTrackExpanded = expandedTracks[track.id] !== false; // default expanded
+            return (
             <div key={track.id} className="space-y-4">
               {/* Module Header */}
-              <div className="flex items-center justify-between px-2 pt-2">
-                <h3 className="text-sm font-bold text-[#334155] uppercase tracking-wider">
-                  {track.name} ({track.days?.length || 0} Days)
-                </h3>
+              <div className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-white border border-[#e2e8f0] shadow-2xs">
+                <button
+                  type="button"
+                  onClick={() => toggleExpandTrack(track.id)}
+                  className="flex items-center gap-2 text-left flex-1 cursor-pointer group"
+                  title={isTrackExpanded ? 'Hide Module Days' : 'Show Module Days'}
+                >
+                  {isTrackExpanded ? (
+                    <ChevronUp size={16} className="text-[#475569] group-hover:text-[#0047ba] shrink-0" />
+                  ) : (
+                    <ChevronDown size={16} className="text-[#475569] group-hover:text-[#0047ba] shrink-0" />
+                  )}
+                  <h3 className="text-sm font-bold text-[#334155] group-hover:text-[#0047ba] uppercase tracking-wider transition">
+                    {track.name} ({track.days?.length || 0} Days)
+                  </h3>
+                </button>
                 <div className="flex items-center gap-3">
                   <button
-                    onClick={() => { setSelectedTrackId(track.id); resetDayForm(); setDayModalOpen(true); }}
+                    type="button"
+                    onClick={() => {
+                      setExpandedTracks(prev => ({ ...prev, [track.id]: true }));
+                      setSelectedTrackId(track.id);
+                      resetDayForm();
+                      setDayModalOpen(true);
+                    }}
                     className="text-xs font-semibold text-[#0047ba] hover:underline flex items-center gap-1"
                   >
                     <Plus size={13} /> Add Day
                   </button>
                   <button
+                    type="button"
                     onClick={() => {
                       if (window.confirm(`Are you sure you want to delete the module "${track.name}" and all its days? This cannot be undone.`)) {
                         deleteTrackMutation.mutate(track.id);
@@ -456,10 +524,20 @@ export function ProgramDetailPage() {
                   >
                     <Trash2 size={13} /> Delete Module
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => toggleExpandTrack(track.id)}
+                    className="p-1.5 text-[#475569] hover:text-[#1e293b] hover:bg-[#f1f5f9] rounded-md transition flex items-center gap-1 text-xs font-semibold"
+                    title={isTrackExpanded ? 'Hide Module Days' : 'Show Module Days'}
+                  >
+                    <span>{isTrackExpanded ? 'Hide' : 'Show'}</span>
+                    {isTrackExpanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+                  </button>
                 </div>
               </div>
 
               {/* Days List (MATCHING IMAGE 1) */}
+              {isTrackExpanded && (
               <div className="space-y-4">
                 {track.days && track.days.length > 0 ? (
                   track.days.map((day: any) => {
@@ -871,8 +949,10 @@ export function ProgramDetailPage() {
                   </div>
                 )}
               </div>
+              )}
             </div>
-          ))
+            );
+          })
         ) : (
           <div className="p-12 panel bg-white text-center">
             <EmptyState
@@ -897,8 +977,9 @@ export function ProgramDetailPage() {
           <form
             onSubmit={(e) => {
               e.preventDefault();
+              setFormError('');
               updateDayMutation.mutate({
-                summary_url: summaryUrl,
+                summary_url: normalizeUrl(summaryUrl),
                 summary_main: summaryMain,
                 summary_english: summaryEnglish,
                 summary_telugu: summaryTelugu
@@ -906,13 +987,18 @@ export function ProgramDetailPage() {
             }}
             className="space-y-4 text-xs"
           >
+            {formError && (
+              <div className="rounded-lg bg-[#faecea] p-2.5 text-xs font-medium text-[#b8483d] border border-[#f5c4be]">
+                {formError}
+              </div>
+            )}
             <div>
               <label className="mb-1 block font-semibold text-[#334155]">
                 Existing Summary Link / Redirect URL
               </label>
               <div className="flex gap-2">
                 <input
-                  type="url"
+                  type="text"
                   value={summaryUrl}
                   onChange={(e) => setSummaryUrl(e.target.value)}
                   placeholder="https://docs.python.org/ or documentation/notion link…"
@@ -988,18 +1074,24 @@ export function ProgramDetailPage() {
           <form
             onSubmit={(e) => {
               e.preventDefault();
+              setFormError('');
               updateDayMutation.mutate({
-                summary_video_url: dayVideo,
-                video_url: dayVideo
+                summary_video_url: normalizeUrl(dayVideo),
+                video_url: normalizeUrl(dayVideo)
               });
             }}
             className="space-y-4 text-xs"
           >
+            {formError && (
+              <div className="rounded-lg bg-[#faecea] p-2.5 text-xs font-medium text-[#b8483d] border border-[#f5c4be]">
+                {formError}
+              </div>
+            )}
             <div>
               <label className="mb-1 block font-semibold text-[#334155]">Main Class Video Link / Redirect URL</label>
               <div className="flex gap-2">
                 <input
-                  type="url"
+                  type="text"
                   required
                   placeholder="https://www.youtube.com/watch?v=... or MP4 / Vimeo embed URL"
                   value={dayVideo}
@@ -1027,7 +1119,18 @@ export function ProgramDetailPage() {
                 <span className="text-[10px] font-bold uppercase tracking-wider text-[#64748b] block mb-2">Video Preview</span>
                 <div className="aspect-video w-full rounded-lg overflow-hidden bg-black">
                   <iframe
-                    src={dayVideo.includes('watch?v=') ? dayVideo.replace('watch?v=', 'embed/') : dayVideo}
+                    src={(() => {
+                      const norm = normalizeUrl(dayVideo);
+                      if (norm.includes('watch?v=')) {
+                        const vid = norm.split('watch?v=')[1]?.split('&')[0];
+                        return vid ? `https://www.youtube.com/embed/${vid}` : norm;
+                      }
+                      if (norm.includes('youtu.be/')) {
+                        const vid = norm.split('youtu.be/')[1]?.split('?')[0];
+                        return vid ? `https://www.youtube.com/embed/${vid}` : norm;
+                      }
+                      return norm;
+                    })()}
                     title="Preview"
                     className="w-full h-full border-0"
                     allowFullScreen
@@ -1057,20 +1160,26 @@ export function ProgramDetailPage() {
           <form
             onSubmit={(e) => {
               e.preventDefault();
+              setFormError('');
               updateDayMutation.mutate({
-                quiz_url: quizUrl,
+                quiz_url: normalizeUrl(quizUrl),
                 description: quizInstructions
               });
             }}
             className="space-y-4 text-xs"
           >
+            {formError && (
+              <div className="rounded-lg bg-[#faecea] p-2.5 text-xs font-medium text-[#b8483d] border border-[#f5c4be]">
+                {formError}
+              </div>
+            )}
             <div>
               <label className="mb-1 block font-semibold text-[#334155]">
                 Existing Quiz Link / Redirect URL
               </label>
               <div className="flex gap-2">
                 <input
-                  type="url"
+                  type="text"
                   value={quizUrl}
                   onChange={(e) => setQuizUrl(e.target.value)}
                   placeholder="https://forms.google.com/... or test/quiz platform URL"
@@ -1140,8 +1249,9 @@ export function ProgramDetailPage() {
           <form
             onSubmit={(e) => {
               e.preventDefault();
+              setFormError('');
               updateDayMutation.mutate({
-                assignment_url: assignmentUrl,
+                assignment_url: normalizeUrl(assignmentUrl),
                 require_google_drive_submission: requireDrive,
                 require_approval: dayApproval,
                 description: assignmentInstructions
@@ -1149,13 +1259,18 @@ export function ProgramDetailPage() {
             }}
             className="space-y-4 text-xs"
           >
+            {formError && (
+              <div className="rounded-lg bg-[#faecea] p-2.5 text-xs font-medium text-[#b8483d] border border-[#f5c4be]">
+                {formError}
+              </div>
+            )}
             <div>
               <label className="mb-1 block font-semibold text-[#334155]">
                 Existing Assignment Link / Redirect URL
               </label>
               <div className="flex gap-2">
                 <input
-                  type="url"
+                  type="text"
                   value={assignmentUrl}
                   onChange={(e) => setAssignmentUrl(e.target.value)}
                   placeholder="https://docs.google.com/... or GitHub / project spec link"
@@ -1506,18 +1621,19 @@ export function ProgramDetailPage() {
           <form
             onSubmit={(e) => {
               e.preventDefault();
+              setFormError('');
               addDayMutation.mutate({
                 title: dayTitle.trim(),
                 day_number: dayNumber || 1,
                 description: dayDesc.trim() || undefined,
-                summary_url: summaryUrl.trim() || undefined,
+                summary_url: normalizeUrl(summaryUrl) || undefined,
                 summary_main: summaryMain.trim() || undefined,
                 summary_english: summaryEnglish.trim() || undefined,
                 summary_telugu: summaryTelugu.trim() || undefined,
-                video_url: dayVideo.trim() || undefined,
-                summary_video_url: dayVideo.trim() || undefined,
-                quiz_url: quizUrl.trim() || undefined,
-                assignment_url: assignmentUrl.trim() || undefined,
+                video_url: normalizeUrl(dayVideo) || undefined,
+                summary_video_url: normalizeUrl(dayVideo) || undefined,
+                quiz_url: normalizeUrl(quizUrl) || undefined,
+                assignment_url: normalizeUrl(assignmentUrl) || undefined,
                 require_google_drive_submission: requireDrive,
                 base_reward_points: dayPoints || 20,
                 published: true
@@ -1525,6 +1641,11 @@ export function ProgramDetailPage() {
             }}
             className="space-y-3.5 text-xs max-h-[75vh] overflow-y-auto pr-1"
           >
+            {formError && (
+              <div className="rounded-lg bg-[#faecea] p-2.5 text-xs font-medium text-[#b8483d] border border-[#f5c4be]">
+                {formError}
+              </div>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
               <div className="sm:col-span-3">
                 <label className="mb-1 block font-semibold text-[#334155]">Day / Lesson Title *</label>
@@ -1569,7 +1690,7 @@ export function ProgramDetailPage() {
               </label>
               <div className="flex gap-2">
                 <input
-                  type="url"
+                  type="text"
                   placeholder="https://docs.python.org/ or documentation / notion / slides URL"
                   value={summaryUrl}
                   onChange={(e) => setSummaryUrl(e.target.value)}
@@ -1598,7 +1719,7 @@ export function ProgramDetailPage() {
               </label>
               <div className="flex gap-2">
                 <input
-                  type="url"
+                  type="text"
                   placeholder="https://www.youtube.com/watch?v=... or direct MP4 / Vimeo video URL"
                   value={dayVideo}
                   onChange={(e) => setDayVideo(e.target.value)}
@@ -1627,7 +1748,7 @@ export function ProgramDetailPage() {
               </label>
               <div className="flex gap-2">
                 <input
-                  type="url"
+                  type="text"
                   placeholder="https://forms.google.com/... or quiz / assessment platform URL"
                   value={quizUrl}
                   onChange={(e) => setQuizUrl(e.target.value)}
@@ -1656,7 +1777,7 @@ export function ProgramDetailPage() {
               </label>
               <div className="flex gap-2">
                 <input
-                  type="url"
+                  type="text"
                   placeholder="https://docs.google.com/... or GitHub / project assignment document"
                   value={assignmentUrl}
                   onChange={(e) => setAssignmentUrl(e.target.value)}
@@ -1717,24 +1838,31 @@ export function ProgramDetailPage() {
           <form
             onSubmit={(e) => {
               e.preventDefault();
+              setFormError('');
               updateDayMutation.mutate({
-                title: dayTitle,
+                title: dayTitle.trim(),
                 day_number: dayNumber,
+                base_reward_points: dayPoints,
                 reward_points: dayPoints,
                 description: dayDesc,
-                summary_url: summaryUrl,
+                summary_url: normalizeUrl(summaryUrl),
                 summary_main: summaryMain,
                 summary_english: summaryEnglish,
                 summary_telugu: summaryTelugu,
-                video_url: dayVideo,
-                summary_video_url: dayVideo,
-                quiz_url: quizUrl,
-                assignment_url: assignmentUrl,
+                video_url: normalizeUrl(dayVideo),
+                summary_video_url: normalizeUrl(dayVideo),
+                quiz_url: normalizeUrl(quizUrl),
+                assignment_url: normalizeUrl(assignmentUrl),
                 require_google_drive_submission: requireDrive
               });
             }}
             className="space-y-4 text-xs max-h-[75vh] overflow-y-auto pr-1"
           >
+            {formError && (
+              <div className="rounded-lg bg-[#faecea] p-2.5 text-xs font-medium text-[#b8483d] border border-[#f5c4be]">
+                {formError}
+              </div>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="sm:col-span-2">
                 <label className="mb-1 block font-semibold text-[#334155]">Day / Submodule Title *</label>
@@ -1768,7 +1896,7 @@ export function ProgramDetailPage() {
               </span>
               <div className="flex gap-2">
                 <input
-                  type="url"
+                  type="text"
                   placeholder="https://docs.python.org/ or documentation/notion link"
                   value={summaryUrl}
                   onChange={(e) => setSummaryUrl(e.target.value)}
@@ -1794,7 +1922,7 @@ export function ProgramDetailPage() {
               </span>
               <div className="flex gap-2">
                 <input
-                  type="url"
+                  type="text"
                   placeholder="https://www.youtube.com/watch?v=... or direct MP4 / Vimeo video URL"
                   value={dayVideo}
                   onChange={(e) => setDayVideo(e.target.value)}
@@ -1820,7 +1948,7 @@ export function ProgramDetailPage() {
               </span>
               <div className="flex gap-2">
                 <input
-                  type="url"
+                  type="text"
                   placeholder="https://forms.google.com/... or test / quiz platform URL"
                   value={quizUrl}
                   onChange={(e) => setQuizUrl(e.target.value)}
@@ -1846,7 +1974,7 @@ export function ProgramDetailPage() {
               </span>
               <div className="flex gap-2">
                 <input
-                  type="url"
+                  type="text"
                   placeholder="https://docs.google.com/... or GitHub / project assignment document"
                   value={assignmentUrl}
                   onChange={(e) => setAssignmentUrl(e.target.value)}

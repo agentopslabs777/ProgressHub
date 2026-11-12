@@ -11,8 +11,20 @@ import {
 import { studentApi, submissionsApi, authApi } from '@/services/api';
 import { PageTitle, StatusBadge, LoadingState, ErrorState } from '@/components/common/UIComponents';
 
+function safeHref(url?: string | null): string {
+  const trimmed = (url ?? '').trim();
+  if (!trimmed) return '#';
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) return '#';
+  return `https://${trimmed}`;
+}
+
 export function DailyClassPage() {
   const { id = '' } = useParams<{ id: string }>();
+  return <DailyClassContent key={id} id={id} />;
+}
+
+function DailyClassContent({ id }: { id: string }) {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
 
@@ -22,16 +34,6 @@ export function DailyClassPage() {
 
   // Active section tab: 'summary' | 'video' | 'quiz' | 'assignment' | 'submission'
   const [activeTab, setActiveTab] = useState<'summary' | 'video' | 'quiz' | 'assignment' | 'submission'>('summary');
-  
-  // Summary language sub-tab: 'english' | 'telugu' | 'main'
-
-  // Flashcard flipper state (under Quiz tab)
-  const [currentCardIndex, setCurrentCardIndex] = useState(0);
-  const [isFlipped, setIsFlipped] = useState(false);
-
-  // Interactive Quiz state (under Quiz tab)
-  const [selectedQuizAnswers, setSelectedQuizAnswers] = useState<{ [qId: number]: number }>({});
-  const [quizSubmitted, setQuizSubmitted] = useState(false);
   const [studentQuizScore, setStudentQuizScore] = useState<number>(85);
 
   // Optimistic local state for checklist items
@@ -63,11 +65,12 @@ export function DailyClassPage() {
     staleTime: 60000
   });
 
-  const { data: day, isLoading, isError, refetch } = useQuery({
+  const { data: day, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['student_day', id, studentIdParam],
     queryFn: () => studentApi.getDayDetails(id, studentIdParam),
     enabled: !!id,
     staleTime: 0,
+    retry: (failureCount, err: any) => err?.status !== 403 && err?.status !== 404 && failureCount < 2,
     refetchOnWindowFocus: true
   });
 
@@ -133,9 +136,13 @@ export function DailyClassPage() {
         if (!old) return old;
         return {
           ...old,
+          is_completed: true,
           google_drive_submission: res
         };
       });
+      if (res?.next_day_id) {
+        queryClient.removeQueries({ queryKey: ['student_day', res.next_day_id] });
+      }
       queryClient.invalidateQueries({ queryKey: ['student_day', id, studentIdParam] });
       queryClient.invalidateQueries({ queryKey: ['student_program_progress'] });
       queryClient.invalidateQueries({ queryKey: ['wallet'] });
@@ -171,18 +178,6 @@ export function DailyClassPage() {
   });
 
   useEffect(() => {
-    // Whenever navigating to a new day, always reset tab to Section 1: Summary
-    setActiveTab('summary');
-    setLocalSummaryCompleted(false);
-    setLocalVideoCompleted(false);
-    setLocalQuizCompleted(false);
-    setLocalAssignmentCompleted(false);
-    setOptimisticDrive(null);
-    setDriveUrl('');
-    setDriveNotes('');
-    setDriveUrlError('');
-    setShowEditDriveForm(false);
-    setDriveSubmitSuccess(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [id]);
 
@@ -221,12 +216,31 @@ export function DailyClassPage() {
   };
 
   if (isLoading) return <LoadingState label="Loading daily curriculum and learning session" />;
-  if (isError || !day) return <ErrorState retry={() => refetch()} />;
+  if (isError || !day) {
+    if ((error as any)?.status === 403) {
+      return (
+        <div className="max-w-xl mx-auto mt-10 panel p-8 bg-white border border-[#e4ebe4] text-center space-y-4 rounded-2xl shadow-xs">
+          <div className="w-12 h-12 rounded-full bg-[#fef3c7] text-[#b45309] flex items-center justify-center mx-auto">
+            <Lock size={24} />
+          </div>
+          <h2 className="text-base font-bold text-[#1e293b]">Learning Day Locked</h2>
+          <p className="text-xs text-[#64748b] max-w-md mx-auto">
+            {(error as any)?.message || 'Please complete the previous learning day in this module first to unlock this session.'}
+          </p>
+          <div className="pt-2 flex justify-center gap-3">
+            <Link href="/my-programs" className="btn btn-primary text-xs py-2 px-5 font-bold">
+              ← Back to My Programs
+            </Link>
+          </div>
+        </div>
+      );
+    }
+    return <ErrorState error={(error as Error)?.message} retry={() => refetch()} />;
+  }
 
   const checklist = day.checklist || [];
   const tasks = day.tasks || [];
   const resources = day.resources || [];
-  const flashcards = day.flashcards || [];
   const latestDrive = day.google_drive_submission;
   const activeDrive = optimisticDrive || latestDrive;
   const driveHistory = day.google_drive_history || [];
@@ -473,7 +487,7 @@ export function DailyClassPage() {
                   </div>
                 </div>
                 <a
-                  href={day.summary_url || day.summaryUrl}
+                  href={safeHref(day.summary_url || day.summaryUrl)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="btn btn-primary text-xs py-2 px-4 flex items-center gap-1.5 font-bold shrink-0 shadow-xs"
@@ -516,7 +530,9 @@ export function DailyClassPage() {
               type="button"
               onClick={() => {
                 setLocalSummaryCompleted(true);
-                updateActivityMutation.mutate({ activity: 'summary_viewed', value: true });
+                if (!isSummaryDone && !isReviewer) {
+                  updateActivityMutation.mutate({ activity: 'summary_viewed', value: true });
+                }
                 setActiveTab('video');
               }}
               className="btn btn-primary text-xs py-2.5 px-5 flex items-center gap-2 font-bold shadow-xs w-full sm:w-auto justify-center"
@@ -560,13 +576,14 @@ export function DailyClassPage() {
           {(day.video_url || day.summary_video_url || day.videoUrl) ? (
             <div className="space-y-4">
               {(() => {
-                const vid = day.video_url || day.summary_video_url || day.videoUrl;
+                const rawVid = day.video_url || day.summary_video_url || day.videoUrl;
+                const vid = safeHref(rawVid);
                 let embedUrl = vid;
                 if (vid.includes('youtube.com/watch?v=')) {
                   embedUrl = vid.replace('watch?v=', 'embed/').split('&')[0];
                 } else if (vid.includes('youtu.be/')) {
-                  const id = vid.split('youtu.be/')[1].split('?')[0];
-                  embedUrl = `https://www.youtube.com/embed/${id}`;
+                  const videoId = vid.split('youtu.be/')[1].split('?')[0];
+                  embedUrl = `https://www.youtube.com/embed/${videoId}`;
                 }
 
                 const isEmbeddable = vid.includes('youtube.com') || vid.includes('youtu.be') || vid.includes('vimeo.com');
@@ -676,7 +693,7 @@ export function DailyClassPage() {
             </div>
             {(day.quiz_url || day.quizUrl) && (
               <a
-                href={day.quiz_url || day.quizUrl}
+                href={safeHref(day.quiz_url || day.quizUrl)}
                 target="_blank"
                 rel="noreferrer"
                 className="btn btn-primary text-xs py-2 px-4 flex items-center gap-1.5 font-bold shadow-xs"
@@ -703,7 +720,7 @@ export function DailyClassPage() {
                   </div>
                 </div>
                 <a
-                  href={day.quiz_url || day.quizUrl}
+                  href={safeHref(day.quiz_url || day.quizUrl)}
                   target="_blank"
                   rel="noreferrer"
                   className="btn btn-primary text-xs py-2 px-4 flex items-center gap-1.5 font-bold shrink-0 shadow-xs"
@@ -755,11 +772,13 @@ export function DailyClassPage() {
                 type="button"
                 onClick={() => {
                   setLocalQuizCompleted(true);
-                  updateActivityMutation.mutate({
-                    activity: 'quiz_completed',
-                    value: true,
-                    score: Number(studentQuizScore)
-                  });
+                  if (!isReviewer) {
+                    updateActivityMutation.mutate({
+                      activity: 'quiz_completed',
+                      value: true,
+                      score: Number(studentQuizScore)
+                    });
+                  }
                   setActiveTab('assignment');
                 }}
                 className="btn btn-primary text-xs py-2.5 px-6 font-bold shadow-xs flex items-center justify-center gap-2"
@@ -841,7 +860,7 @@ export function DailyClassPage() {
             </div>
             {day.assignment_url && (
               <a
-                href={day.assignment_url}
+                href={safeHref(day.assignment_url)}
                 target="_blank"
                 rel="noreferrer"
                 className="btn btn-primary text-xs py-2 px-4 flex items-center gap-1.5 font-bold shadow-xs"
@@ -865,7 +884,7 @@ export function DailyClassPage() {
                 </div>
               </div>
               <a
-                href={day.assignment_url}
+                href={safeHref(day.assignment_url)}
                 target="_blank"
                 rel="noreferrer"
                 className="btn btn-primary text-xs py-2 px-4 shrink-0 font-bold"
@@ -886,7 +905,7 @@ export function DailyClassPage() {
 
             {localChecklist.length === 0 ? (
               <p className="text-xs text-[#718279] italic p-3 border border-dashed rounded-xl text-center">
-                Review Day 1 class video and study notes.
+                Review Day {day.day_number} class video and study notes.
               </p>
             ) : (
               <div className="space-y-2">
@@ -967,7 +986,13 @@ export function DailyClassPage() {
               </p>
             </div>
             <button
-              onClick={() => setActiveTab('submission')}
+              onClick={() => {
+                setLocalAssignmentCompleted(true);
+                if (!isAssignmentDone && !isReviewer) {
+                  updateActivityMutation.mutate({ activity: 'assignment_completed', value: true });
+                }
+                setActiveTab('submission');
+              }}
               className="btn btn-primary text-xs py-2 px-4 flex items-center gap-1.5 font-bold shadow-xs shrink-0"
             >
               <span>Go to Section 5: Submission</span>
@@ -991,6 +1016,7 @@ export function DailyClassPage() {
               )}
               <button
                 onClick={() => {
+                  setLocalAssignmentCompleted(true);
                   if (!isAssignmentDone && !isReviewer) {
                     updateActivityMutation.mutate({ activity: 'assignment_completed', value: true });
                   }
@@ -1037,23 +1063,23 @@ export function DailyClassPage() {
                   <ExternalLink size={18} className="text-[#255f46]" /> Section 5: Submission Drive Link
                 </h2>
                 <p className="text-xs text-[#718079]">
-                  Submit Google Drive link to completed assignment · Automatically completes day and unlocks Day 2
+                  Submit Google Drive link to completed assignment · Automatically completes Day {day.day_number}{day.next_day ? ` and unlocks Day ${day.next_day.day_number}` : ''}
                 </p>
               </div>
 
               {/* Status Badge */}
               <div>
-                {latestDrive ? (
+                {activeDrive ? (
                   <span className={`text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider ${
-                    latestDrive.status === 'approved'
+                    activeDrive.status === 'approved'
                       ? 'bg-[#e2f4ea] text-[#1a5b3b] border border-[#bce4cc]'
-                      : latestDrive.status === 'changes_requested'
+                      : activeDrive.status === 'changes_requested'
                       ? 'bg-[#fff5e5] text-[#8e601c] border border-[#f5dfbc]'
-                      : latestDrive.status === 'rejected'
+                      : activeDrive.status === 'rejected'
                       ? 'bg-[#faecea] text-[#a4453a] border border-[#f5c7c2]'
                       : 'bg-[#edf3f0] text-[#364d42] border border-[#d2dfd8]'
                   }`}>
-                    {latestDrive.status.replace('_', ' ')}
+                    {(activeDrive.status || 'submitted').replace('_', ' ')}
                   </span>
                 ) : (
                   <span className="text-xs font-bold px-3 py-1 rounded-full bg-[#f4f7f4] text-[#62776c] border border-[#dce5dc]">
@@ -1110,20 +1136,27 @@ export function DailyClassPage() {
             </div>
 
             {/* NEXT DAY UNLOCKED NOTIFICATION BANNER */}
-            {(day.is_completed || driveSubmitSuccess || (activeDrive && activeDrive.status)) && (
+            {(() => {
+              const isSavingUnlock = submitDriveMutation.isPending || String(activeDrive?.id || '').startsWith('opt-');
+              if (!(day.is_completed || driveSubmitSuccess || (activeDrive && activeDrive.status))) return null;
+              return (
               <div className="rounded-2xl border-2 border-[#86efac] bg-gradient-to-r from-[#ecfdf5] via-[#f0fdf4] to-[#e8f7ee] p-5 shadow-sm flex flex-wrap items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-[#16a34a] text-white flex items-center justify-center font-black text-lg shadow-xs">
-                    ✓
+                    {isSavingUnlock ? '…' : '✓'}
                   </div>
                   <div>
                     <span className="text-xs font-bold text-[#15803d] uppercase tracking-wider block">
-                      Day {day.day_number} Completed
+                      {isSavingUnlock && !day.is_completed
+                        ? `Submitting Day ${day.day_number}...`
+                        : `Day ${day.day_number} Completed`}
                     </span>
                     <span className="text-sm font-extrabold text-[#14532d]">
-                      {day.next_day
-                        ? `Day ${day.next_day.day_number}: ${day.next_day.title} is now open and ready!`
-                        : 'You have completed all days in this course curriculum!'}
+                      {isSavingUnlock && !day.is_completed && day.next_day
+                        ? `Saving submission & unlocking Day ${day.next_day.day_number}...`
+                        : day.next_day
+                          ? `Day ${day.next_day.day_number}: ${day.next_day.title} is now open and ready!`
+                          : 'You have completed all days in this course curriculum!'}
                     </span>
                   </div>
                 </div>
@@ -1131,7 +1164,10 @@ export function DailyClassPage() {
                 {day.next_day && (
                   <button
                     type="button"
+                    disabled={isSavingUnlock && !day.is_completed}
                     onClick={() => {
+                      if (isSavingUnlock && !day.is_completed) return;
+                      queryClient.removeQueries({ queryKey: ['student_day', day.next_day.id] });
                       setActiveTab('summary');
                       setLocalSummaryCompleted(false);
                       setLocalVideoCompleted(false);
@@ -1140,14 +1176,19 @@ export function DailyClassPage() {
                       setLocation(`/learning-days/${day.next_day.id}${studentIdParam ? `?student_id=${studentIdParam}` : ''}`);
                       window.scrollTo({ top: 0, behavior: 'smooth' });
                     }}
-                    className="btn btn-primary text-xs py-2.5 px-5 flex items-center gap-2 font-bold shadow-sm"
+                    className="btn btn-primary text-xs py-2.5 px-5 flex items-center gap-2 font-bold shadow-sm disabled:opacity-60 disabled:cursor-wait"
                   >
-                    <span>Proceed to Day {day.next_day.day_number} (Summary)</span>
+                    <span>
+                      {isSavingUnlock && !day.is_completed
+                        ? `Unlocking Day ${day.next_day.day_number}...`
+                        : `Proceed to Day ${day.next_day.day_number} (Summary)`}
+                    </span>
                     <ArrowRight size={15} />
                   </button>
                 )}
               </div>
-            )}
+              );
+            })()}
 
             {/* PROMINENT FACULTY EVALUATION & FEEDBACK CARD (Visible when reviewed) */}
             {activeDrive && (activeDrive.status === 'approved' || activeDrive.rating || activeDrive.review_comments) && (
@@ -1229,7 +1270,7 @@ export function DailyClassPage() {
                   <div className="min-w-0 flex-1">
                     <span className="text-[10px] uppercase font-bold text-[#62776c] block">Google Drive URL:</span>
                     <a
-                      href={activeDrive.google_drive_url || activeDrive.drive_url}
+                      href={safeHref(activeDrive.google_drive_url || activeDrive.drive_url)}
                       target="_blank"
                       rel="noreferrer"
                       className="text-xs font-bold text-[#1b5f3d] hover:underline flex items-center gap-1.5 truncate"
@@ -1239,7 +1280,7 @@ export function DailyClassPage() {
                     </a>
                   </div>
                   <a
-                    href={activeDrive.google_drive_url || activeDrive.drive_url}
+                    href={safeHref(activeDrive.google_drive_url || activeDrive.drive_url)}
                     target="_blank"
                     rel="noreferrer"
                     className="btn btn-primary text-xs py-1.5 px-3 shrink-0 flex items-center gap-1 font-bold"
@@ -1354,7 +1395,7 @@ export function DailyClassPage() {
                     </p>
                   </div>
                   <a
-                    href={latestDrive.google_drive_url}
+                    href={safeHref(latestDrive.google_drive_url)}
                     target="_blank"
                     rel="noreferrer"
                     className="btn btn-primary text-xs py-1.5 px-3 flex items-center gap-1"
@@ -1479,7 +1520,7 @@ export function DailyClassPage() {
                         <td className="py-2.5 px-3 font-bold text-[#21352d]">Attempt #{s.attempt_number}</td>
                         <td className="py-2.5 px-3">
                           <a
-                            href={s.google_drive_url}
+                            href={safeHref(s.google_drive_url)}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="font-bold text-[#205e45] hover:underline inline-flex items-center gap-1"

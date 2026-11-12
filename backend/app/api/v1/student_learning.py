@@ -1,7 +1,8 @@
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy import func
+from sqlalchemy.orm import Session, joinedload
 from backend.app.db.session import get_db
 from backend.app.models.models import (
     Enrollment, Program, LearningTrack, LearningDay, DayProgress,
@@ -13,8 +14,9 @@ from backend.app.schemas.schemas import (
 )
 from backend.app.permissions.permissions import get_current_user
 from backend.app.services.learning_engine import (
-    get_track_days_status, verify_student_day_access, 
-    check_and_update_day_progress, calculate_enrollment_progress, evaluate_day_completion
+    get_track_days_status, get_program_tracks_days_status, verify_student_day_access,
+    check_and_update_day_progress, calculate_enrollment_progress,
+    calculate_enrollments_progress_map, evaluate_day_completion, evaluate_day_completion_data
 )
 
 router = APIRouter(prefix="/student", tags=["Student Learning"])
@@ -29,33 +31,42 @@ def get_student_programs(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    query = db.query(Enrollment).options(
+        joinedload(Enrollment.program),
+        joinedload(Enrollment.employee),
+    ).filter(Enrollment.status == "active")
     if current_user.role == "student":
-        enrollments = db.query(Enrollment).filter(
-            Enrollment.student_id == current_user.id,
-            Enrollment.status == "active"
-        ).all()
+        query = query.filter(Enrollment.student_id == current_user.id)
     elif current_user.role == "employee":
-        enrollments = db.query(Enrollment).filter(
-            Enrollment.employee_id == current_user.id,
-            Enrollment.status == "active"
-        ).all()
-    else:  # admin
-        enrollments = db.query(Enrollment).filter(Enrollment.status == "active").all()
+        query = query.filter(Enrollment.employee_id == current_user.id)
+    enrollments = query.all()
 
     # Deduplicate by program
     seen_programs = set()
-    results = []
+    unique_enrollments = []
     for e in enrollments:
-        p = e.program
-        if not p or p.id in seen_programs:
+        if not e.program or e.program.id in seen_programs:
             continue
-        seen_programs.add(p.id)
+        seen_programs.add(e.program.id)
+        unique_enrollments.append(e)
 
-        track_count = db.query(LearningTrack).filter(
-            LearningTrack.program_id == p.id,
-            LearningTrack.active == True
-        ).count()
-        progress = calculate_enrollment_progress(db, e)
+    if not unique_enrollments:
+        return []
+
+    program_ids = [e.program.id for e in unique_enrollments]
+    track_counts = dict(
+        db.query(LearningTrack.program_id, func.count(LearningTrack.id))
+        .filter(LearningTrack.program_id.in_(program_ids), LearningTrack.active == True)
+        .group_by(LearningTrack.program_id)
+        .all()
+    )
+    progress_map = calculate_enrollments_progress_map(db, unique_enrollments)
+
+    results = []
+    for e in unique_enrollments:
+        p = e.program
+        track_count = track_counts.get(p.id, 0)
+        progress = progress_map.get(e.id, 0)
 
         results.append({
             "id": p.id,
@@ -84,7 +95,10 @@ def get_program_assigned_students(
     For employees and admin: lists students enrolled in the program.
     Employees see students assigned to them; Admins see all students enrolled.
     """
-    query = db.query(Enrollment).filter(
+    query = db.query(Enrollment).options(
+        joinedload(Enrollment.student),
+        joinedload(Enrollment.employee),
+    ).filter(
         Enrollment.program_id == program_id,
         Enrollment.status == "active"
     )
@@ -93,16 +107,26 @@ def get_program_assigned_students(
     elif current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    enrollments = query.all()
+    enrollments = [e for e in query.all() if e.student]
+    if not enrollments:
+        return []
+
+    enrollment_ids = [e.id for e in enrollments]
+    progress_map = calculate_enrollments_progress_map(db, enrollments)
+    all_subs = (
+        db.query(GoogleDriveSubmission)
+        .filter(GoogleDriveSubmission.enrollment_id.in_(enrollment_ids))
+        .order_by(GoogleDriveSubmission.submitted_at.desc())
+        .all()
+    )
+    latest_by_enrollment = {}
+    for s in all_subs:
+        if s.enrollment_id not in latest_by_enrollment:
+            latest_by_enrollment[s.enrollment_id] = s
+
     results = []
     for e in enrollments:
-        if not e.student:
-            continue
-        progress = calculate_enrollment_progress(db, e)
-        # Check latest submission across this enrollment
-        latest_drive = db.query(GoogleDriveSubmission).filter(
-            GoogleDriveSubmission.enrollment_id == e.id
-        ).order_by(GoogleDriveSubmission.submitted_at.desc()).first()
+        latest_drive = latest_by_enrollment.get(e.id)
 
         results.append({
             "student_id": e.student.id,
@@ -110,7 +134,7 @@ def get_program_assigned_students(
             "full_name": e.student.full_name,
             "email": e.student.email,
             "identifier": e.student.identifier,
-            "progress": progress,
+            "progress": progress_map.get(e.id, 0),
             "assigned_employee_name": e.employee.full_name if e.employee else "Unassigned",
             "latest_submission_status": latest_drive.status if latest_drive else "not_submitted",
             "latest_submission_date": latest_drive.submitted_at if latest_drive else None
@@ -168,19 +192,18 @@ def get_student_program_progress(
         LearningTrack.active == True
     ).order_by(LearningTrack.position.asc()).all()
 
-    results = []
-    for track in tracks:
-        days_status = get_track_days_status(db, enrollment, track)
-        total_days = len(days_status)
-        completed_days = sum(1 for d in days_status if d["is_completed"])
-        track_progress = int((completed_days / total_days) * 100) if total_days > 0 else 0
-
-        day_ids = [d["day"].id for d in days_status]
+    days_by_track = get_program_tracks_days_status(db, enrollment, tracks)
+    all_day_ids = [
+        d["day"].id
+        for track in tracks
+        for d in days_by_track.get(track.id, [])
+    ]
+    drive_by_day = {}
+    if all_day_ids:
         drive_subs = db.query(GoogleDriveSubmission).filter(
             GoogleDriveSubmission.enrollment_id == enrollment.id,
-            GoogleDriveSubmission.day_id.in_(day_ids)
+            GoogleDriveSubmission.day_id.in_(all_day_ids)
         ).order_by(GoogleDriveSubmission.attempt_number.desc()).all()
-        drive_by_day = {}
         for s in drive_subs:
             if s.day_id not in drive_by_day:
                 drive_by_day[s.day_id] = {
@@ -197,6 +220,13 @@ def get_student_program_progress(
                     "submitted_at": s.submitted_at.isoformat() if s.submitted_at else None,
                     "reviewed_at": s.reviewed_at.isoformat() if s.reviewed_at else None,
                 }
+
+    results = []
+    for track in tracks:
+        days_status = days_by_track.get(track.id, [])
+        total_days = len(days_status)
+        completed_days = sum(1 for d in days_status if d["is_completed"])
+        track_progress = int((completed_days / total_days) * 100) if total_days > 0 else 0
 
         results.append({
             "trackId": track.id,
@@ -248,59 +278,52 @@ def get_student_day_details(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    day = db.query(LearningDay).filter(LearningDay.id == day_id).first()
-    if not day:
-        raise HTTPException(status_code=404, detail="Learning day not found")
-
-    track = db.query(LearningTrack).filter(LearningTrack.id == day.track_id).first()
-    if not track:
-        raise HTTPException(status_code=404, detail="Module/Track not found")
-
-    program = db.query(Program).filter(Program.id == track.program_id).first()
-
     target_student_id = current_user.id
-    if student_id and current_user.role in ["employee", "admin"]:
-        target_student_id = student_id
-    elif current_user.role in ["employee", "admin"] and not student_id:
-        # Auto-pick the first active enrolled student in this program so admin can review
-        first_enrollment = db.query(Enrollment).filter(
+    if current_user.role == "student":
+        enrollment, day = verify_student_day_access(db, current_user.id, day_id)
+        track = db.query(LearningTrack).filter(LearningTrack.id == day.track_id).first()
+        program = db.query(Program).filter(Program.id == track.program_id).first() if track else None
+    else:
+        day = db.query(LearningDay).filter(LearningDay.id == day_id).first()
+        if not day:
+            raise HTTPException(status_code=404, detail="Learning day not found")
+
+        track = db.query(LearningTrack).filter(LearningTrack.id == day.track_id).first()
+        if not track:
+            raise HTTPException(status_code=404, detail="Module/Track not found")
+
+        program = db.query(Program).filter(Program.id == track.program_id).first()
+
+        if student_id and current_user.role in ["employee", "admin"]:
+            target_student_id = student_id
+        elif current_user.role in ["employee", "admin"] and not student_id:
+            first_enrollment = db.query(Enrollment).filter(
+                Enrollment.program_id == track.program_id,
+                Enrollment.status == "active"
+            ).first()
+            if first_enrollment:
+                target_student_id = first_enrollment.student_id
+
+        enrollment = db.query(Enrollment).filter(
+            Enrollment.student_id == target_student_id,
             Enrollment.program_id == track.program_id,
             Enrollment.status == "active"
         ).first()
-        if first_enrollment:
-            target_student_id = first_enrollment.student_id
 
-    enrollment = db.query(Enrollment).filter(
-        Enrollment.student_id == target_student_id,
-        Enrollment.program_id == track.program_id,
-        Enrollment.status == "active"
-    ).first()
+        if not enrollment:
+            if current_user.role == "admin":
+                enrollment = None
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Student is not actively enrolled in this program"
+                )
 
-    if not enrollment:
-        if current_user.role == "admin":
-            # Admin preview mode when no active enrollment is found
-            enrollment = None
-        elif current_user.role == "student":
-            enrollment = Enrollment(
-                student_id=target_student_id,
-                program_id=track.program_id,
-                status="active"
-            )
-            db.add(enrollment)
-            db.commit()
-            db.refresh(enrollment)
-        else:
+        if current_user.role == "employee" and enrollment and enrollment.employee_id != current_user.id:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Student is not actively enrolled in this program"
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You are not authorized to view this student's learning session"
             )
-
-    # Permission check for employee
-    if current_user.role == "employee" and enrollment and enrollment.employee_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You are not authorized to view this student's learning session"
-        )
 
     # Fetch checklist items with student completion state
     items = db.query(ChecklistTemplateItem).filter(
@@ -326,17 +349,27 @@ def get_student_day_details(
         "completed": it.id in completed_ids
     } for it in items]
 
-    # Fetch daily tasks with student submissions
+    # Fetch daily tasks with batched student submissions
     tasks = db.query(DailyTask).filter(DailyTask.day_id == day.id).all()
+    task_subs_by_task = {}
+    if enrollment and tasks:
+        task_ids = [t.id for t in tasks]
+        all_task_subs = (
+            db.query(TaskSubmission)
+            .filter(
+                TaskSubmission.enrollment_id == enrollment.id,
+                TaskSubmission.task_id.in_(task_ids),
+            )
+            .order_by(TaskSubmission.submitted_at.desc())
+            .all()
+        )
+        for s in all_task_subs:
+            if s.task_id not in task_subs_by_task:
+                task_subs_by_task[s.task_id] = s
+
     tasks_data = []
     for t in tasks:
-        sub = None
-        if enrollment:
-            sub = db.query(TaskSubmission).filter(
-                TaskSubmission.enrollment_id == enrollment.id,
-                TaskSubmission.task_id == t.id
-            ).order_by(TaskSubmission.submitted_at.desc()).first()
-
+        sub = task_subs_by_task.get(t.id)
         tasks_data.append({
             "id": t.id,
             "title": t.title,
@@ -374,7 +407,7 @@ def get_student_day_details(
             GoogleDriveSubmission.day_id == day.id
         ).order_by(GoogleDriveSubmission.attempt_number.desc()).all()
 
-    latest_drive = drive_subs[0] if drive_subs else None
+    latest_drive = next((s for s in drive_subs if s.is_latest), drive_subs[0] if drive_subs else None)
     drive_history = [{
         "id": s.id,
         "google_drive_url": s.google_drive_url,
@@ -392,39 +425,51 @@ def get_student_day_details(
         "reviewed_at": s.reviewed_at
     } for s in drive_subs]
 
-    # Day completion & activity progress
+    # Day completion & activity progress (evaluated in memory from already-loaded records)
     progress = None
+    pending_reasons = []
     if enrollment:
         progress = db.query(DayProgress).filter(
             DayProgress.enrollment_id == enrollment.id,
             DayProgress.day_id == day.id
         ).first()
 
-        # Automatically evaluate day completion if not already marked completed
-        if not progress or not progress.is_completed:
+        is_satisfied, pending_reasons = evaluate_day_completion_data(
+            day=day,
+            required_items=[it for it in items if it.is_required],
+            completed_item_ids=completed_ids,
+            tasks=tasks,
+            task_subs_by_task=task_subs_by_task,
+            latest_drive=latest_drive,
+            day_progress=progress,
+        )
+
+        if is_satisfied and (not progress or not progress.is_completed):
             check_and_update_day_progress(db, enrollment, day, current_user)
             progress = db.query(DayProgress).filter(
                 DayProgress.enrollment_id == enrollment.id,
                 DayProgress.day_id == day.id
             ).first()
 
-    pending_reasons = []
-    if enrollment:
-        _, pending_reasons = evaluate_day_completion(db, enrollment, day)
+    target_user = (
+        current_user
+        if target_student_id == current_user.id
+        else db.query(User).filter(User.id == target_student_id).first()
+    )
 
-
-    target_user = db.query(User).filter(User.id == target_student_id).first()
-
-    # Look up next day and previous day in this track
-    prev_day = db.query(LearningDay).filter(
-        LearningDay.track_id == day.track_id,
-        LearningDay.day_number < day.day_number
-    ).order_by(LearningDay.day_number.desc()).first()
-
-    next_day = db.query(LearningDay).filter(
-        LearningDay.track_id == day.track_id,
-        LearningDay.day_number > day.day_number
-    ).order_by(LearningDay.day_number.asc()).first()
+    # Look up next day and previous day in this track with a single query
+    track_days = db.query(LearningDay.id, LearningDay.day_number, LearningDay.title).filter(
+        LearningDay.track_id == day.track_id
+    ).order_by(LearningDay.day_number.asc()).all()
+    prev_day = None
+    next_day = None
+    for idx, td in enumerate(track_days):
+        if td.id == day.id:
+            if idx > 0:
+                prev_day = track_days[idx - 1]
+            if idx + 1 < len(track_days):
+                next_day = track_days[idx + 1]
+            break
 
     return {
         "id": day.id,

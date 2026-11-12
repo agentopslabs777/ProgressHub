@@ -50,14 +50,14 @@ export function StudentProgramView() {
     }
   }, [isFacultyOrAdmin, assignedStudents, selectedStudentId]);
 
-  const { data: tracks = [], isLoading, isError, refetch } = useQuery({
+  const { data: tracks = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['student_program_progress', id, selectedStudentId],
     queryFn: () => studentApi.getProgramProgress(id, selectedStudentId),
     enabled: !!id
   });
 
   if (isLoading) return <LoadingState label="Loading learning tracks and day progression" />;
-  if (isError) return <ErrorState retry={() => refetch()} />;
+  if (isError) return <ErrorState error={(error as Error)?.message} retry={() => refetch()} />;
 
   const displayedTracks = tracks.filter((t: any) => {
     if (selectedTrackId && selectedTrackId !== 'ALL') {

@@ -28,7 +28,7 @@ export function ProgramsPage() {
   const [status, setStatus] = useState<string>('published');
   const [formError, setFormError] = useState('');
 
-  const { data: programs = [], isLoading, isError, refetch } = useQuery({
+  const { data: programs = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['programs'],
     queryFn: programsApi.list
   });
@@ -167,7 +167,7 @@ export function ProgramsPage() {
         {isLoading ? (
           <LoadingState label="Loading training programs..." />
         ) : isError ? (
-          <div className="p-4"><ErrorState retry={() => refetch()} /></div>
+          <div className="p-4"><ErrorState error={(error as Error)?.message} retry={() => refetch()} /></div>
         ) : programs.length === 0 ? (
           <div className="p-8">
             <EmptyState
