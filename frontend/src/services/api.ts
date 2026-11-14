@@ -230,6 +230,14 @@ export const authApi = {
 export const dashboardApi = {
   getStats: () => request<any>('/dashboard'),
   getActivity: () => request<any[]>('/activity'),
+  getHelpLink: () => request<{ help_url: string | null }>('/help-link'),
+  updateHelpLink: (help_url: string) => request<{ help_url: string | null; message: string }>('/help-link', {
+    method: 'POST',
+    body: JSON.stringify({ help_url })
+  }),
+  deleteHelpLink: () => request<{ help_url: null; message: string }>('/help-link', {
+    method: 'DELETE'
+  }),
 };
 
 // Students

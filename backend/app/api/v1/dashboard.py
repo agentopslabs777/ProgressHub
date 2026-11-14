@@ -1,15 +1,16 @@
 from datetime import datetime, date
-from typing import List, Dict, Any
-from fastapi import APIRouter, Depends
+from typing import List, Dict, Any, Optional
+from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from backend.app.db.session import get_db
 from backend.app.models.models import (
     User, Program, Enrollment, TaskSubmission, DayProgress, 
     LearningTrack, LearningDay, AuditLog, Notification,
-    GoogleDriveSubmission, ChecklistCompletion
+    GoogleDriveSubmission, ChecklistCompletion, SystemSetting
 )
-from backend.app.permissions.permissions import get_current_user
+from backend.app.permissions.permissions import get_current_user, require_admin, log_audit
 from backend.app.services.learning_engine import calculate_enrollment_progress
 from backend.app.services.reward_service import get_or_create_wallet, get_or_create_reward_config
 
@@ -20,6 +21,9 @@ def get_dashboard_stats(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    help_setting = db.query(SystemSetting).filter(SystemSetting.key == "help_link").first()
+    help_url = help_setting.value if help_setting and help_setting.value else None
+
     if current_user.role == "admin":
         total_students = db.query(User).filter(User.role == "student").count()
         active_students = db.query(User).filter(User.role == "student", User.status == "active").count()
@@ -69,7 +73,8 @@ def get_dashboard_stats(
             "pendingSubmissions": pending_subs + pending_drive_subs,
             "averageProgress": avg_prog,
             "enrollmentChart": enrollment_chart,
-            "submissionChart": submission_stats
+            "submissionChart": submission_stats,
+            "help_url": help_url
         }
 
     elif current_user.role == "employee":
@@ -98,7 +103,8 @@ def get_dashboard_stats(
             "pendingSubmissions": pending_reviews + pending_drive_reviews,
             "assignedPrograms": unique_programs,
             "averageProgress": avg_prog,
-            "overdueTasks": 0
+            "overdueTasks": 0,
+            "help_url": help_url
         }
 
     else:  # student
@@ -140,8 +146,71 @@ def get_dashboard_stats(
             "overallProgress": avg_prog,
             "pendingTasks": pending_tasks + pending_drive_changes,
             "walletBalance": wallet.balance,
-            "walletValueInr": round(wallet.balance * config.point_to_rupee_ratio, 2)
+            "walletValueInr": round(wallet.balance * config.point_to_rupee_ratio, 2),
+            "help_url": help_url
         }
+
+class HelpLinkInput(BaseModel):
+    help_url: Optional[str] = None
+
+
+@router.get("/help-link", response_model=dict)
+@router.get("/dashboard/help-link", response_model=dict)
+def get_help_link(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    setting = db.query(SystemSetting).filter(SystemSetting.key == "help_link").first()
+    return {"help_url": setting.value if setting and setting.value else None}
+
+
+@router.post("/help-link", response_model=dict)
+@router.post("/dashboard/help-link", response_model=dict)
+def update_help_link(
+    data: HelpLinkInput,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    url = (data.help_url or "").strip()
+    setting = db.query(SystemSetting).filter(SystemSetting.key == "help_link").first()
+    if not setting:
+        setting = SystemSetting(key="help_link", value=url or None)
+        db.add(setting)
+    else:
+        setting.value = url or None
+        setting.updated_at = datetime.utcnow()
+    db.commit()
+    log_audit(
+        db=db,
+        actor=current_user,
+        action="UPDATE_HELP_LINK",
+        target_type="system_setting",
+        target_id=setting.id,
+        details=f"Admin set help link to: {url or 'None'}"
+    )
+    return {"help_url": setting.value, "message": "Help link saved successfully"}
+
+
+@router.delete("/help-link", response_model=dict)
+@router.delete("/dashboard/help-link", response_model=dict)
+def delete_help_link(
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    setting = db.query(SystemSetting).filter(SystemSetting.key == "help_link").first()
+    if setting:
+        setting.value = None
+        setting.updated_at = datetime.utcnow()
+        db.commit()
+        log_audit(
+            db=db,
+            actor=current_user,
+            action="DELETE_HELP_LINK",
+            target_type="system_setting",
+            target_id=setting.id,
+            details="Admin removed help link"
+        )
+    return {"help_url": None, "message": "Help link deleted successfully"}
 
 @router.get("/activity", response_model=List[dict])
 def get_recent_activity(

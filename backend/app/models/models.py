@@ -604,3 +604,14 @@ class StudentApplication(Base):
     created_enrollment = relationship("Enrollment", foreign_keys=[created_enrollment_id])
 
 
+class SystemSetting(Base):
+    __tablename__ = "system_settings"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    key = Column(String(100), unique=True, index=True, nullable=False)
+    value = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
+

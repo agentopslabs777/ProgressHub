@@ -573,57 +573,40 @@ function DailyClassContent({ id }: { id: string }) {
             </p>
           </div>
 
+          {/* MAIN CLASS VIDEO LINK CARD */}
           {(day.video_url || day.summary_video_url || day.videoUrl) ? (
-            <div className="space-y-4">
-              {(() => {
-                const rawVid = day.video_url || day.summary_video_url || day.videoUrl;
-                const vid = safeHref(rawVid);
-                let embedUrl = vid;
-                if (vid.includes('youtube.com/watch?v=')) {
-                  embedUrl = vid.replace('watch?v=', 'embed/').split('&')[0];
-                } else if (vid.includes('youtu.be/')) {
-                  const videoId = vid.split('youtu.be/')[1].split('?')[0];
-                  embedUrl = `https://www.youtube.com/embed/${videoId}`;
-                }
-
-                const isEmbeddable = vid.includes('youtube.com') || vid.includes('youtu.be') || vid.includes('vimeo.com');
-
-                return (
-                  <div className="space-y-2">
-                    <div className="flex justify-end">
-                      <a
-                        href={vid}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="btn btn-soft text-xs py-1.5 px-3 flex items-center gap-1.5 text-[#1e293b]"
-                      >
-                        <ExternalLink size={13} />
-                        <span>Open Video in New Tab</span>
-                      </a>
-                    </div>
-                    <div className="aspect-video w-full rounded-2xl overflow-hidden bg-black/5 border border-[#e0e7e1] shadow-xs">
-                      {isEmbeddable ? (
-                        <iframe
-                          src={embedUrl}
-                          title={day.title || 'Main Class Video'}
-                          className="w-full h-full border-0"
-                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                          allowFullScreen
-                        />
-                      ) : (
-                        <video controls className="w-full h-full object-cover">
-                          <source src={vid} />
-                          Your browser does not support the video tag.
-                        </video>
-                      )}
-                    </div>
+            <div className="p-5 rounded-2xl border border-[#bbf7d0] bg-[#f0fdf4] space-y-3 shadow-xs">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <div className="grid h-10 w-10 place-items-center rounded-xl bg-[#15803d] text-white shrink-0 shadow-xs">
+                    <Video size={20} />
                   </div>
-                );
-              })()}
+                  <div>
+                    <h3 className="text-sm font-bold text-[#14532d]">Official Main Class Video</h3>
+                    <p className="text-xs text-[#166534] mt-0.5">
+                      Open today's video lecture and class recording.
+                    </p>
+                  </div>
+                </div>
+                <a
+                  href={safeHref(day.video_url || day.summary_video_url || day.videoUrl)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn-primary text-xs py-2 px-4 flex items-center gap-1.5 font-bold shrink-0 shadow-xs"
+                >
+                  <span>Open Video Link</span>
+                  <ExternalLink size={13} />
+                </a>
+              </div>
+              <div className="text-[11px] font-mono text-[#15803d] bg-white/80 p-2.5 rounded-lg border border-[#bbf7d0] break-all">
+                {day.video_url || day.summary_video_url || day.videoUrl}
+              </div>
             </div>
           ) : (
-            <div className="p-8 text-center text-xs text-[#7d8e85] border border-dashed border-[#ccd9cf] rounded-2xl">
-              No specific video recording attached for this day. Review the study resources, quiz, and assignment.
+            <div className="p-6 text-center text-xs text-[#718278] border border-dashed border-[#ccd9cf] rounded-2xl bg-[#fafbfa]">
+              <Video size={24} className="mx-auto mb-2 text-[#94a39b]" />
+              <p className="font-semibold text-[#485951]">No main class video recording link configured for this day.</p>
+              <p className="text-[11px] text-[#7d8e85] mt-1">Review the study resources, quiz, and assignment below.</p>
             </div>
           )}
 
