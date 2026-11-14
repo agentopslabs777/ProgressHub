@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Search, Edit, UserX, UserCheck, Users, Briefcase, KeyRound } from 'lucide-react';
+import { Plus, Search, Edit, UserX, UserCheck, Users, Briefcase, KeyRound, Clock, Calendar } from 'lucide-react';
 import { employeesApi } from '@/services/api';
 import { PageTitle, StatusBadge, EmptyState, LoadingState, ErrorState, Modal, ConfirmModal } from '@/components/common/UIComponents';
 
@@ -24,6 +24,7 @@ export function EmployeesPage() {
   const [identifier, setIdentifier] = useState('');
   const [designation, setDesignation] = useState('');
   const [contactNumber, setContactNumber] = useState('');
+  const [accessDuration, setAccessDuration] = useState('1_month');
   const [formError, setFormError] = useState('');
 
   // Pagination state
@@ -91,6 +92,7 @@ export function EmployeesPage() {
     setIdentifier('');
     setDesignation('');
     setContactNumber('');
+    setAccessDuration('1_month');
     setFormError('');
   };
 
@@ -100,6 +102,7 @@ export function EmployeesPage() {
     setEmail(emp.email);
     setDesignation(emp.designation || '');
     setContactNumber(emp.contact_number || '');
+    setAccessDuration(emp.access_duration || emp.accessDuration || 'lifetime');
     setNewEmpPassword('');
     setFormError('');
     setEditOpen(true);
@@ -193,12 +196,20 @@ export function EmployeesPage() {
                     <th className="px-5 py-3.5 min-w-[130px]">Designation</th>
                     <th className="px-5 py-3.5 min-w-[140px]">Teams</th>
                     <th className="px-5 py-3.5 min-w-[130px]">Assigned Students</th>
+                    <th className="px-5 py-3.5 min-w-[150px]">Access Validity</th>
                     <th className="px-5 py-3.5 min-w-[90px]">Status</th>
                     <th className="px-5 py-3.5 min-w-[90px] text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#edf0ea]">
-                  {paginatedEmployees.map((emp: any) => (
+                  {paginatedEmployees.map((emp: any) => {
+                    const dur = emp.access_duration || emp.accessDuration || 'lifetime';
+                    const days = emp.days_left !== undefined && emp.days_left !== null ? emp.days_left : emp.daysLeft;
+                    const expiresAt = emp.access_expires_at || emp.accessExpiresAt;
+                    const isLifetime = dur === 'lifetime' || (!expiresAt && dur !== '1_month' && dur !== '6_months' && dur !== '1_year');
+                    const isExpired = !isLifetime && (days === 0 || emp.status === 'blocked');
+
+                    return (
                     <tr key={emp.id} className="hover:bg-[#fafbf9] transition">
                       <td className="px-5 py-3.5">
                         <div className="font-bold text-[#273831]">{emp.fullName || emp.full_name}</div>
@@ -225,6 +236,39 @@ export function EmployeesPage() {
                       </td>
                       <td className="px-5 py-3.5 font-semibold text-[#30443c]">
                         {emp.studentCount} {emp.studentCount === 1 ? 'student' : 'students'}
+                      </td>
+                      <td className="px-5 py-3.5">
+                        {isLifetime ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#eef3f0] text-[#345c4b]">
+                            Lifetime Access
+                          </span>
+                        ) : isExpired ? (
+                          <div className="flex flex-col">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#fcedeb] text-[#a43b2e] w-fit">
+                              <Clock size={11} /> Expired (0 days)
+                            </span>
+                            {expiresAt && (
+                              <span className="text-[10px] text-[#82928a] mt-0.5">
+                                Expired {new Date(expiresAt).toLocaleDateString()}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="flex flex-col">
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold w-fit ${
+                              days !== undefined && days <= 7
+                                ? 'bg-amber-100 text-amber-900 border border-amber-200'
+                                : 'bg-[#eaf5ef] text-[#246146]'
+                            }`}>
+                              <Clock size={11} /> {days} {days === 1 ? 'day' : 'days'} left
+                            </span>
+                            {expiresAt && (
+                              <span className="text-[10px] text-[#82928a] mt-0.5">
+                                Until {new Date(expiresAt).toLocaleDateString()}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </td>
                       <td className="px-5 py-3.5">
                         <StatusBadge status={emp.status} />
@@ -263,7 +307,8 @@ export function EmployeesPage() {
                         )}
                       </td>
                     </tr>
-                  ))}
+                  );
+                })}
                 </tbody>
               </table>
             </div>
@@ -310,7 +355,7 @@ export function EmployeesPage() {
             onSubmit={(e) => {
               e.preventDefault();
               setFormError('');
-              createMutation.mutate({ fullName, email, password, identifier, designation, contactNumber });
+              createMutation.mutate({ fullName, email, password, identifier, designation, contactNumber, access_duration: accessDuration });
             }}
             className="space-y-3.5"
           >
@@ -347,6 +392,22 @@ export function EmployeesPage() {
                 placeholder="At least 6 characters"
                 className="field text-xs"
               />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-[#4a5952]">Access Duration Restriction</label>
+              <select
+                value={accessDuration}
+                onChange={(e) => setAccessDuration(e.target.value)}
+                className="field text-xs bg-white"
+              >
+                <option value="1_month">1 Month (30 Days)</option>
+                <option value="6_months">6 Months (180 Days)</option>
+                <option value="1_year">1 Year (365 Days)</option>
+                <option value="lifetime">Lifelong / Unlimited</option>
+              </select>
+              <p className="mt-1 text-[11px] text-[#788880]">
+                Account automatically blocks when the access duration is completed.
+              </p>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -407,7 +468,13 @@ export function EmployeesPage() {
                 setFormError('New password must be at least 6 characters.');
                 return;
               }
-              const payload: any = { full_name: fullName, email, designation, contact_number: contactNumber };
+              const payload: any = {
+                full_name: fullName,
+                email,
+                designation,
+                contact_number: contactNumber,
+                access_duration: accessDuration
+              };
               if (newEmpPassword.trim()) {
                 payload.password = newEmpPassword;
               }
@@ -437,6 +504,30 @@ export function EmployeesPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 className="field text-xs"
               />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-[#4a5952]">Access Duration / Extend Access</label>
+              <select
+                value={accessDuration}
+                onChange={(e) => setAccessDuration(e.target.value)}
+                className="field text-xs bg-white"
+              >
+                <option value="1_month">1 Month (30 Days from today)</option>
+                <option value="6_months">6 Months (180 Days from today)</option>
+                <option value="1_year">1 Year (365 Days from today)</option>
+                <option value="lifetime">Lifelong / Unlimited</option>
+              </select>
+              {selectedEmployee.access_expires_at && selectedEmployee.access_duration !== 'lifetime' && (
+                <p className="mt-1 text-[11px] text-[#60726a]">
+                  Current Expiry: {new Date(selectedEmployee.access_expires_at).toLocaleDateString()}
+                  {selectedEmployee.days_left !== undefined && selectedEmployee.days_left !== null
+                    ? ` (${selectedEmployee.days_left} days left)`
+                    : ''}
+                </p>
+              )}
+              <p className="mt-1 text-[11px] text-[#29684c]">
+                Updating or extending access automatically reactivates blocked or expired employee accounts.
+              </p>
             </div>
             <div>
               <label className="mb-1 block text-xs font-semibold text-[#4a5952]">Designation</label>

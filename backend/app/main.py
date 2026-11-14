@@ -39,6 +39,10 @@ def init_db():
                     conn.execute(text("ALTER TABLE users ADD COLUMN referral_link VARCHAR(500)"))
                 if "referral_link_approved" not in u_cols:
                     conn.execute(text("ALTER TABLE users ADD COLUMN referral_link_approved BOOLEAN DEFAULT 1"))
+                if "access_duration" not in u_cols:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN access_duration VARCHAR(50) DEFAULT 'lifetime'"))
+                if "access_expires_at" not in u_cols:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN access_expires_at TIMESTAMP"))
 
             # Check programs table
             if "programs" in insp.get_table_names():

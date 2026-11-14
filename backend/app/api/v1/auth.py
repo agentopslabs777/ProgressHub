@@ -20,6 +20,16 @@ def login(input_data: LoginInput, db: Session = Depends(get_db)):
             detail="Invalid email or password"
         )
 
+    # Check access validity for employee accounts
+    if user.role == "employee" and user.access_expires_at and user.access_expires_at <= datetime.utcnow():
+        if user.status != "blocked":
+            user.status = "blocked"
+            db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your access duration has expired. Please contact the administrator to extend your access."
+        )
+
     if user.status == "blocked":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -41,10 +51,15 @@ def login(input_data: LoginInput, db: Session = Depends(get_db)):
 
     log_audit(db=db, actor=user, action="LOGIN", target_type="user", target_id=user.id)
 
+    user_resp = UserResponse.model_validate(user)
+    if user.access_expires_at:
+        delta = (user.access_expires_at - datetime.utcnow()).total_seconds()
+        user_resp.days_left = max(0, int(delta // 86400) + (1 if delta % 86400 > 0 else 0))
+
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token_str,
-        user=UserResponse.model_validate(user)
+        user=user_resp
     )
 
 @router.post("/refresh")
@@ -61,7 +76,22 @@ def refresh_token(data: RefreshTokenInput, db: Session = Depends(get_db)):
         )
 
     user = db.query(User).filter(User.id == db_token.user_id).first()
-    if not user or user.status == "blocked":
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found"
+        )
+
+    if user.role == "employee" and user.access_expires_at and user.access_expires_at <= datetime.utcnow():
+        if user.status != "blocked":
+            user.status = "blocked"
+            db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your access duration has expired. Please contact the administrator to extend your access."
+        )
+
+    if user.status == "blocked":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is blocked or inactive"
@@ -76,11 +106,16 @@ def refresh_token(data: RefreshTokenInput, db: Session = Depends(get_db)):
     db.commit()
 
     new_access_token = create_access_token(subject=user.id, role=user.role)
+    user_resp = UserResponse.model_validate(user)
+    if user.access_expires_at:
+        delta = (user.access_expires_at - datetime.utcnow()).total_seconds()
+        user_resp.days_left = max(0, int(delta // 86400) + (1 if delta % 86400 > 0 else 0))
+
     return {
         "access_token": new_access_token,
         "refresh_token": new_refresh_str,
         "token_type": "bearer",
-        "user": UserResponse.model_validate(user)
+        "user": user_resp
     }
 
 @router.post("/logout")
@@ -98,7 +133,11 @@ class ChangePasswordInput(BaseModel):
 
 @router.get("/me", response_model=UserResponse)
 def get_current_account(current_user: User = Depends(get_current_user)):
-    return UserResponse.model_validate(current_user)
+    resp = UserResponse.model_validate(current_user)
+    if current_user.access_expires_at:
+        delta = (current_user.access_expires_at - datetime.utcnow()).total_seconds()
+        resp.days_left = max(0, int(delta // 86400) + (1 if delta % 86400 > 0 else 0))
+    return resp
 
 
 @router.post("/change-password")

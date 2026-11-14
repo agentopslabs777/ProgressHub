@@ -13,6 +13,12 @@ export interface User {
   contact_number?: string;
   designation?: string;
   referral_code?: string;
+  access_duration?: string;
+  accessDuration?: string;
+  access_expires_at?: string | null;
+  accessExpiresAt?: string | null;
+  days_left?: number | null;
+  daysLeft?: number | null;
   created_at: string;
 }
 
@@ -304,7 +310,8 @@ export const employeesApi = {
       role: 'employee',
       identifier: data.identifier,
       contact_number: data.contactNumber || data.contact_number,
-      designation: data.designation
+      designation: data.designation,
+      access_duration: data.access_duration || data.accessDuration || 'lifetime'
     })
   }),
   get: (id: string) => request<any>(`/employees/${id}`),

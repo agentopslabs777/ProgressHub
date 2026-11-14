@@ -160,6 +160,58 @@ export function DashboardPage({ user }: { user: User }) {
         }
       />
 
+      {/* Employee Access Validity Alert Banner (Displays only if not lifetime) */}
+      {isEmployee && data.access_duration && data.access_duration !== 'lifetime' && data.days_left !== undefined && data.days_left !== null && (
+        <div className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs ${
+          data.days_left <= 5
+            ? 'bg-[#fef7f5] border-[#f8c9c0] text-[#7f261e]'
+            : 'bg-[#f1f8f4] border-[#b8dfcb] text-[#1c4d3b]'
+        }`}>
+          <div className="flex items-center gap-3">
+            <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${
+              data.days_left <= 5 ? 'bg-[#fae0db] text-[#b43224]' : 'bg-[#d8eedf] text-[#22674b]'
+            }`}>
+              <Clock size={20} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-sm text-[#1b2b24]">
+                  Account Access Validity:
+                </span>
+                <span className={`rounded-full px-2 py-0.5 text-xs font-extrabold ${
+                  data.days_left <= 5 ? 'bg-[#fbd3ca] text-[#93271d]' : 'bg-[#c3e8d4] text-[#1a513b]'
+                }`}>
+                  {data.days_left} {data.days_left === 1 ? 'day' : 'days'} left
+                </span>
+              </div>
+              <p className="text-xs text-[#556961] mt-0.5">
+                Plan: <span className="font-semibold text-[#253931]">
+                  {data.access_duration === '1_month'
+                    ? '1 Month (30 Days)'
+                    : data.access_duration === '6_months'
+                    ? '6 Months (180 Days)'
+                    : data.access_duration === '1_year'
+                    ? '1 Year (365 Days)'
+                    : data.access_duration}
+                </span>
+                {data.access_expires_at && (
+                  <span> · Expires on {new Date(data.access_expires_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                )}
+              </p>
+            </div>
+          </div>
+          {data.days_left <= 7 ? (
+            <div className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-[#fae0db] text-[#93271d] w-fit">
+              Expiring soon — contact administrator to extend access
+            </div>
+          ) : (
+            <div className="text-xs font-medium text-[#4c665a] hidden sm:block">
+              Auto-blocks when duration finishes
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Top 4 Metrics Cards */}
       <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-4">
         {isAdmin ? (

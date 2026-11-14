@@ -98,13 +98,24 @@ def get_dashboard_stats(
 
         unique_programs = len({e.program_id for e in assigned_enrollments})
 
+        days_left = None
+        if current_user.access_expires_at:
+            delta = (current_user.access_expires_at - datetime.utcnow()).total_seconds()
+            days_left = max(0, int(delta // 86400) + (1 if delta % 86400 > 0 else 0))
+
         return {
             "assignedStudents": student_count,
             "pendingSubmissions": pending_reviews + pending_drive_reviews,
             "assignedPrograms": unique_programs,
             "averageProgress": avg_prog,
             "overdueTasks": 0,
-            "help_url": help_url
+            "help_url": help_url,
+            "access_duration": current_user.access_duration or "lifetime",
+            "accessDuration": current_user.access_duration or "lifetime",
+            "access_expires_at": current_user.access_expires_at.isoformat() if current_user.access_expires_at else None,
+            "accessExpiresAt": current_user.access_expires_at.isoformat() if current_user.access_expires_at else None,
+            "days_left": days_left,
+            "daysLeft": days_left
         }
 
     else:  # student

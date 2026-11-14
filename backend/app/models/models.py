@@ -25,6 +25,8 @@ class User(Base):
     referral_code = Column(String(50), unique=True, nullable=True, index=True)
     referral_link = Column(String(500), nullable=True)
     referral_link_approved = Column(Boolean, default=True, nullable=False)
+    access_duration = Column(String(50), default="lifetime", nullable=True)  # '1_month', '6_months', '1_year', 'lifetime'
+    access_expires_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

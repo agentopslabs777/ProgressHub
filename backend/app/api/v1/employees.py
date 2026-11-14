@@ -1,6 +1,6 @@
 import random
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
@@ -45,6 +45,16 @@ def list_employees(
 
     employees = query.order_by(User.created_at.desc()).all()
 
+    # Automatically block expired employees
+    now = datetime.utcnow()
+    has_status_changed = False
+    for emp in employees:
+        if emp.access_expires_at and emp.access_expires_at <= now and emp.status != "blocked":
+            emp.status = "blocked"
+            has_status_changed = True
+    if has_status_changed:
+        db.commit()
+
     results = []
     for emp in employees:
         assigned_students = db.query(Enrollment).filter(
@@ -61,6 +71,11 @@ def list_employees(
             TaskSubmission.status.in_(["submitted", "under_review"])
         ).count()
 
+        days_left = None
+        if emp.access_expires_at:
+            delta = (emp.access_expires_at - now).total_seconds()
+            days_left = max(0, int(delta // 86400) + (1 if delta % 86400 > 0 else 0))
+
         results.append({
             "id": emp.id,
             "full_name": emp.full_name,
@@ -71,6 +86,12 @@ def list_employees(
             "identifier": emp.identifier,
             "contact_number": emp.contact_number,
             "designation": emp.designation,
+            "access_duration": emp.access_duration or "lifetime",
+            "accessDuration": emp.access_duration or "lifetime",
+            "access_expires_at": emp.access_expires_at.isoformat() if emp.access_expires_at else None,
+            "accessExpiresAt": emp.access_expires_at.isoformat() if emp.access_expires_at else None,
+            "days_left": days_left,
+            "daysLeft": days_left,
             "studentCount": assigned_students,
             "pendingReviews": pending_reviews,
             "teams": [{"id": t.id, "name": t.name} for t in teams],
@@ -103,6 +124,22 @@ def create_employee(
                 detail="A user with this identifier already exists"
             )
 
+    # Calculate access validity duration
+    raw_duration = (data.access_duration or "lifetime").lower().strip()
+    access_expires_at = None
+    if raw_duration == "1_month":
+        access_expires_at = datetime.utcnow() + timedelta(days=30)
+        access_duration = "1_month"
+    elif raw_duration == "6_months":
+        access_expires_at = datetime.utcnow() + timedelta(days=180)
+        access_duration = "6_months"
+    elif raw_duration == "1_year":
+        access_expires_at = datetime.utcnow() + timedelta(days=365)
+        access_duration = "1_year"
+    else:
+        access_duration = "lifetime"
+        access_expires_at = None
+
     emp = User(
         email=clean_email,
         full_name=data.full_name.strip(),
@@ -111,7 +148,9 @@ def create_employee(
         status="active",
         identifier=identifier,
         contact_number=data.contact_number,
-        designation=data.designation or "Trainer"
+        designation=data.designation or "Trainer",
+        access_duration=access_duration,
+        access_expires_at=access_expires_at
     )
     db.add(emp)
     db.commit()
@@ -123,10 +162,14 @@ def create_employee(
         action="CREATE_EMPLOYEE",
         target_type="employee",
         target_id=emp.id,
-        details=f"Employee {emp.full_name} ({emp.identifier}) created"
+        details=f"Employee {emp.full_name} ({emp.identifier}) created with access duration {access_duration}"
     )
 
-    return UserResponse.model_validate(emp)
+    resp = UserResponse.model_validate(emp)
+    if emp.access_expires_at:
+        delta = (emp.access_expires_at - datetime.utcnow()).total_seconds()
+        resp.days_left = max(0, int(delta // 86400) + (1 if delta % 86400 > 0 else 0))
+    return resp
 
 @router.get("/{employee_id}")
 def get_employee_details(
@@ -147,8 +190,13 @@ def get_employee_details(
         TeamMembership.employee_id == employee_id
     ).all()
 
+    resp_emp = UserResponse.model_validate(emp)
+    if emp.access_expires_at:
+        delta = (emp.access_expires_at - datetime.utcnow()).total_seconds()
+        resp_emp.days_left = max(0, int(delta // 86400) + (1 if delta % 86400 > 0 else 0))
+
     return {
-        "employee": UserResponse.model_validate(emp),
+        "employee": resp_emp,
         "assigned_students": [{
             "enrollment_id": e.id,
             "student_id": e.student_id,
@@ -187,6 +235,29 @@ def update_employee(
         emp.contact_number = data.contact_number
     if data.designation is not None:
         emp.designation = data.designation
+
+    if data.access_duration is not None:
+        raw_dur = data.access_duration.lower().strip()
+        if raw_dur == "1_month":
+            emp.access_duration = "1_month"
+            emp.access_expires_at = datetime.utcnow() + timedelta(days=30)
+            emp.status = "active"  # Extending/setting access automatically activates
+        elif raw_dur == "6_months":
+            emp.access_duration = "6_months"
+            emp.access_expires_at = datetime.utcnow() + timedelta(days=180)
+            emp.status = "active"  # Extending/setting access automatically activates
+        elif raw_dur == "1_year":
+            emp.access_duration = "1_year"
+            emp.access_expires_at = datetime.utcnow() + timedelta(days=365)
+            emp.status = "active"  # Extending/setting access automatically activates
+        elif raw_dur == "lifetime":
+            emp.access_duration = "lifetime"
+            emp.access_expires_at = None
+            emp.status = "active"  # Extending/setting access automatically activates
+
+    if data.access_expires_at is not None:
+        emp.access_expires_at = data.access_expires_at
+
     if data.status:
         emp.status = data.status
 
@@ -202,7 +273,11 @@ def update_employee(
         details=f"Employee {emp.full_name} updated" + (" (password changed)" if data.password else "")
     )
 
-    return UserResponse.model_validate(emp)
+    resp = UserResponse.model_validate(emp)
+    if emp.access_expires_at:
+        delta = (emp.access_expires_at - datetime.utcnow()).total_seconds()
+        resp.days_left = max(0, int(delta // 86400) + (1 if delta % 86400 > 0 else 0))
+    return resp
 
 @router.post("/{employee_id}/block")
 def block_employee(

@@ -29,6 +29,8 @@ class UserBase(BaseSchema):
     contact_number: Optional[str] = None
     designation: Optional[str] = None
     referral_code: Optional[str] = None
+    access_duration: Optional[str] = "lifetime"
+    access_expires_at: Optional[datetime] = None
 
 class UserCreate(BaseModel):
     email: str
@@ -38,6 +40,7 @@ class UserCreate(BaseModel):
     identifier: Optional[str] = None
     contact_number: Optional[str] = None
     designation: Optional[str] = None
+    access_duration: Optional[str] = "lifetime"
 
 class UserUpdate(BaseModel):
     email: Optional[str] = None
@@ -47,9 +50,12 @@ class UserUpdate(BaseModel):
     identifier: Optional[str] = None
     contact_number: Optional[str] = None
     designation: Optional[str] = None
+    access_duration: Optional[str] = None
+    access_expires_at: Optional[datetime] = None
 
 class UserResponse(UserBase):
     id: str
+    days_left: Optional[int] = None
     created_at: datetime
     updated_at: datetime
 

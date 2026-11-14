@@ -1,4 +1,5 @@
 from typing import List, Optional
+from datetime import datetime
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
@@ -33,6 +34,15 @@ def get_current_user(token: Optional[str] = Depends(oauth2_scheme), db: Session 
             headers={"WWW-Authenticate": "Bearer"},
         )
     
+    if user.role == "employee" and user.access_expires_at and user.access_expires_at <= datetime.utcnow():
+        if user.status != "blocked":
+            user.status = "blocked"
+            db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your access duration has expired. Please contact the administrator to extend your access.",
+        )
+
     if user.status == "blocked":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
