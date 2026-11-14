@@ -52,6 +52,10 @@ def login(input_data: LoginInput, db: Session = Depends(get_db)):
     log_audit(db=db, actor=user, action="LOGIN", target_type="user", target_id=user.id)
 
     user_resp = UserResponse.model_validate(user)
+    if user.role == "student" and user.access_duration and user.access_duration != "lifetime" and not user.access_expires_at:
+        dur_days = {"1_month": 30, "6_months": 180, "1_year": 365}.get(user.access_duration, 30)
+        user.access_expires_at = (user.created_at or datetime.utcnow()) + timedelta(days=dur_days)
+        db.commit()
     if user.access_expires_at:
         delta = (user.access_expires_at - datetime.utcnow()).total_seconds()
         user_resp.days_left = max(0, int(delta // 86400) + (1 if delta % 86400 > 0 else 0))
@@ -107,6 +111,10 @@ def refresh_token(data: RefreshTokenInput, db: Session = Depends(get_db)):
 
     new_access_token = create_access_token(subject=user.id, role=user.role)
     user_resp = UserResponse.model_validate(user)
+    if user.role == "student" and user.access_duration and user.access_duration != "lifetime" and not user.access_expires_at:
+        dur_days = {"1_month": 30, "6_months": 180, "1_year": 365}.get(user.access_duration, 30)
+        user.access_expires_at = (user.created_at or datetime.utcnow()) + timedelta(days=dur_days)
+        db.commit()
     if user.access_expires_at:
         delta = (user.access_expires_at - datetime.utcnow()).total_seconds()
         user_resp.days_left = max(0, int(delta // 86400) + (1 if delta % 86400 > 0 else 0))
@@ -132,7 +140,11 @@ class ChangePasswordInput(BaseModel):
 
 
 @router.get("/me", response_model=UserResponse)
-def get_current_account(current_user: User = Depends(get_current_user)):
+def get_current_account(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if current_user.role == "student" and current_user.access_duration and current_user.access_duration != "lifetime" and not current_user.access_expires_at:
+        dur_days = {"1_month": 30, "6_months": 180, "1_year": 365}.get(current_user.access_duration, 30)
+        current_user.access_expires_at = (current_user.created_at or datetime.utcnow()) + timedelta(days=dur_days)
+        db.commit()
     resp = UserResponse.model_validate(current_user)
     if current_user.access_expires_at:
         delta = (current_user.access_expires_at - datetime.utcnow()).total_seconds()

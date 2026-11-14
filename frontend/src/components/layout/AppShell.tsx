@@ -5,7 +5,7 @@ import {
   LayoutDashboard, Users, GraduationCap, Layers, BookOpen,
   ClipboardList, MessageSquare,
   ShieldAlert, Bell, LogOut, Menu, X, ChevronRight, Sparkles,
-  FileSpreadsheet, Gift, Wallet, CreditCard, ShoppingBag, Receipt, Award, KeyRound
+  FileSpreadsheet, Gift, Wallet, CreditCard, ShoppingBag, Receipt, Award, KeyRound, Clock
 } from 'lucide-react';
 import { User, authApi, notificationsApi } from '@/services/api';
 import { Modal } from '@/components/common/UIComponents';
@@ -26,6 +26,10 @@ export function AppShell({ user, children }: AppShellProps) {
   const [pwError, setPwError] = useState('');
   const [pwSuccess, setPwSuccess] = useState('');
   const queryClient = useQueryClient();
+
+  const daysLeft = user.days_left !== undefined && user.days_left !== null ? user.days_left : user.daysLeft;
+  const accessDuration = user.access_duration || user.accessDuration || 'lifetime';
+  const showRemainingDays = user.role === 'student' && accessDuration !== 'lifetime' && daysLeft !== undefined && daysLeft !== null;
 
   const changePasswordMutation = useMutation({
     mutationFn: () => authApi.changePassword(currentPassword, newPassword),
@@ -254,10 +258,26 @@ export function AppShell({ user, children }: AppShellProps) {
               )}
             </div>
 
-            {/* Status indicator */}
-            <div className="hidden items-center gap-1.5 rounded-full border border-[#d9e2d7] bg-white px-3 py-1 text-[11px] font-semibold text-[#546b5e] sm:flex">
-              <span className="h-2 w-2 rounded-full bg-[#4ba373]" />
-              {user.status === 'active' ? 'Active' : user.status}
+            {/* Status indicator & Student remaining days */}
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <div className="flex items-center gap-1.5 rounded-full border border-[#d9e2d7] bg-white px-2.5 py-1 text-[11px] font-semibold text-[#546b5e] sm:px-3">
+                <span className={`h-2 w-2 rounded-full ${user.status === 'active' ? 'bg-[#4ba373]' : 'bg-[#e0564c]'}`} />
+                <span>{user.status === 'active' ? 'Active' : user.status}</span>
+              </div>
+
+              {showRemainingDays && (
+                <div
+                  className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold ${
+                    daysLeft <= 7
+                      ? 'border-[#f8c9c0] bg-[#fdf2f0] text-[#a83427]'
+                      : 'border-[#cce5d7] bg-[#eef8f3] text-[#206349]'
+                  }`}
+                  title={user.access_expires_at ? `Course access expires on ${new Date(user.access_expires_at).toLocaleDateString()}` : undefined}
+                >
+                  <Clock size={12} strokeWidth={2.2} />
+                  <span>{daysLeft} {daysLeft === 1 ? 'day' : 'days'} left</span>
+                </div>
+              )}
             </div>
           </div>
         </header>

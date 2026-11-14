@@ -203,6 +203,15 @@ export const authApi = {
       method: 'POST',
       body: JSON.stringify({ email: email.trim().toLowerCase(), password })
     });
+    if (res.user) {
+      res.user = {
+        ...res.user,
+        fullName: (res.user as any).full_name || res.user.fullName,
+        days_left: (res.user as any).days_left !== undefined ? (res.user as any).days_left : (res.user as any).daysLeft,
+        access_duration: (res.user as any).access_duration || (res.user as any).accessDuration,
+        access_expires_at: (res.user as any).access_expires_at || (res.user as any).accessExpiresAt,
+      };
+    }
     tokenStorage.setTokens(res.access_token, res.refresh_token);
     return res;
   },
@@ -222,7 +231,14 @@ export const authApi = {
     }
   },
   me: async (): Promise<User> => {
-    return request<User>('/auth/me');
+    const u = await request<any>('/auth/me');
+    return {
+      ...u,
+      fullName: u.full_name || u.fullName,
+      days_left: u.days_left !== undefined ? u.days_left : u.daysLeft,
+      access_duration: u.access_duration || u.accessDuration,
+      access_expires_at: u.access_expires_at || u.accessExpiresAt,
+    };
   },
   changePassword: async (currentPassword: string, newPassword: string): Promise<{ message: string }> => {
     return request<{ message: string }>('/auth/change-password', {
