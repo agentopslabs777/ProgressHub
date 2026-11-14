@@ -41,6 +41,7 @@ export function StudentsPage() {
   const [approveModalApp, setApproveModalApp] = useState<any>(null);
   const [approveProgramId, setApproveProgramId] = useState('');
   const [approveEmployeeId, setApproveEmployeeId] = useState('');
+  const [approveAccessDuration, setApproveAccessDuration] = useState('1_month');
   const [approveError, setApproveError] = useState('');
   const [approvalToast, setApprovalToast] = useState('');
 
@@ -64,6 +65,7 @@ export function StudentsPage() {
   const [password, setPassword] = useState('');
   const [identifier, setIdentifier] = useState('');
   const [contactNumber, setContactNumber] = useState('');
+  const [accessDuration, setAccessDuration] = useState('1_month');
   const [editStatus, setEditStatus] = useState('active');
   const [newPassword, setNewPassword] = useState('');
   const [formError, setFormError] = useState('');
@@ -154,8 +156,8 @@ export function StudentsPage() {
   });
 
   const approveMutation = useMutation({
-    mutationFn: ({ appId, programId, employeeId }: { appId: string; programId?: string; employeeId?: string }) =>
-      studentsApi.approveApplication(appId, { program_id: programId, employee_id: employeeId }),
+    mutationFn: ({ appId, programId, employeeId, accessDuration }: { appId: string; programId?: string; employeeId?: string; accessDuration?: string }) =>
+      studentsApi.approveApplication(appId, { program_id: programId, employee_id: employeeId, access_duration: accessDuration }),
     onSuccess: (res: any) => {
       queryClient.invalidateQueries({ queryKey: ['student_applications'] });
       queryClient.invalidateQueries({ queryKey: ['students'] });
@@ -186,6 +188,7 @@ export function StudentsPage() {
     setPassword('');
     setIdentifier('');
     setContactNumber('');
+    setAccessDuration('1_month');
     setFormError('');
   };
 
@@ -196,6 +199,7 @@ export function StudentsPage() {
     setIdentifier(st.identifier || '');
     setContactNumber(st.contact_number || '');
     setEditStatus(st.status || 'active');
+    setAccessDuration(st.access_duration || st.accessDuration || 'lifetime');
     setNewPassword('');
     setFormError('');
     setEditOpen(true);
@@ -213,6 +217,7 @@ export function StudentsPage() {
     setApproveModalApp(app);
     setApproveProgramId(app.program_id || (programs[0]?.id || ''));
     setApproveEmployeeId('');
+    setApproveAccessDuration('1_month');
     setApproveError('');
   };
 
@@ -379,13 +384,20 @@ export function StudentsPage() {
                       <th className="px-5 py-3.5 min-w-[120px]">Identifier</th>
                       <th className="px-5 py-3.5 min-w-[120px]">Enrollments</th>
                       <th className="px-5 py-3.5 min-w-[140px]">Progress</th>
-                      <th className="px-5 py-3.5 min-w-[110px]">Attendance</th>
+                      <th className="px-5 py-3.5 min-w-[140px]">Access Validity</th>
                       <th className="px-5 py-3.5 min-w-[100px]">Status</th>
                       <th className="px-5 py-3.5 min-w-[100px] text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#edf0ea]">
-                    {paginatedStudents.map((st: any) => (
+                    {paginatedStudents.map((st: any) => {
+                      const dur = st.access_duration || st.accessDuration || 'lifetime';
+                      const days = st.days_left !== undefined && st.days_left !== null ? st.days_left : st.daysLeft;
+                      const expiresAt = st.access_expires_at || st.accessExpiresAt;
+                      const isLifetime = dur === 'lifetime' || (!expiresAt && dur !== '1_month' && dur !== '6_months' && dur !== '1_year');
+                      const isExpired = !isLifetime && (days === 0 || st.status === 'blocked');
+
+                      return (
                       <tr key={st.id} className="hover:bg-[#fafbf9] transition">
                         <td className="px-5 py-3.5">
                           <div className="font-bold text-[#273831]">{st.fullName || st.full_name}</div>
@@ -405,8 +417,38 @@ export function StudentsPage() {
                             <span className="text-[11px] font-bold text-[#3a5246]">{st.progress}%</span>
                           </div>
                         </td>
-                        <td className="px-5 py-3.5 font-medium text-[#485951]">
-                          {st.attendance}%
+                        <td className="px-5 py-3.5">
+                          {isLifetime ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#eef3f0] text-[#345c4b]">
+                              Lifetime Access
+                            </span>
+                          ) : isExpired ? (
+                            <div className="flex flex-col">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#fcedeb] text-[#a43b2e] w-fit">
+                                <Clock size={11} /> Expired (0 days)
+                              </span>
+                              {expiresAt && (
+                                <span className="text-[10px] text-[#82928a] mt-0.5">
+                                  Ended {new Date(expiresAt).toLocaleDateString()}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="flex flex-col">
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold w-fit ${
+                                days !== undefined && days <= 7
+                                  ? 'bg-amber-100 text-amber-900 border border-amber-200'
+                                  : 'bg-[#eaf5ef] text-[#246146]'
+                              }`}>
+                                <Clock size={11} /> {days} {days === 1 ? 'day' : 'days'} left
+                              </span>
+                              {expiresAt && (
+                                <span className="text-[10px] text-[#82928a] mt-0.5">
+                                  Until {new Date(expiresAt).toLocaleDateString()}
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </td>
                         <td className="px-5 py-3.5">
                           <StatusBadge status={st.status} />
@@ -452,7 +494,8 @@ export function StudentsPage() {
                           </button>
                         </td>
                       </tr>
-                    ))}
+                    );
+                  })}
                   </tbody>
                 </table>
               </div>
@@ -754,7 +797,8 @@ export function StudentsPage() {
               approveMutation.mutate({
                 appId: approveModalApp.id,
                 programId: approveProgramId,
-                employeeId: approveEmployeeId
+                employeeId: approveEmployeeId,
+                accessDuration: approveAccessDuration
               });
             }}
             className="space-y-4"
@@ -837,13 +881,34 @@ export function StudentsPage() {
               </span>
             </div>
 
+            {/* Automation Selection 3: Course Access Duration */}
+            <div>
+              <label className="block text-xs font-bold text-[#23382e] mb-1">
+                Course Access Duration *
+              </label>
+              <select
+                required
+                value={approveAccessDuration}
+                onChange={(e) => setApproveAccessDuration(e.target.value)}
+                className="field text-xs py-2 w-full font-semibold bg-white"
+              >
+                <option value="1_month">1 Month (30 Days)</option>
+                <option value="6_months">6 Months (180 Days)</option>
+                <option value="1_year">1 Year (365 Days)</option>
+                <option value="lifetime">Lifelong / Unlimited</option>
+              </select>
+              <span className="text-[10px] text-[#6d8276] mt-0.5 block">
+                Access automatically blocks when duration is completed. Admin can extend at any time.
+              </span>
+            </div>
+
             <div className="p-3 bg-[#eef7f2] rounded-xl border border-[#bce4cc] text-xs text-[#1c553b] space-y-1">
               <strong className="font-bold flex items-center gap-1.5">
                 <CheckCircle2 size={14} className="text-[#16a34a]" />
                 Zero-Navigation Automation:
               </strong>
               <p className="text-[11px]">
-                Confirming approval will instantly: (1) create the student login account, (2) activate course enrollment, (3) assign the selected faculty, and (4) mark the application as approved.
+                Confirming approval will instantly: (1) create the student login account with selected access duration, (2) activate course enrollment, (3) assign the selected faculty, and (4) mark the application as approved.
               </p>
             </div>
 
@@ -925,7 +990,7 @@ export function StudentsPage() {
             onSubmit={(e) => {
               e.preventDefault();
               setFormError('');
-              createMutation.mutate({ fullName, email, password, identifier, contactNumber });
+              createMutation.mutate({ fullName, email, password, identifier, contactNumber, access_duration: accessDuration });
             }}
             className="space-y-3.5"
           >
@@ -962,6 +1027,22 @@ export function StudentsPage() {
                 placeholder="At least 6 characters"
                 className="field text-xs py-2"
               />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-[#4a5952]">Course Access Duration Restriction</label>
+              <select
+                value={accessDuration}
+                onChange={(e) => setAccessDuration(e.target.value)}
+                className="field text-xs py-2 bg-white"
+              >
+                <option value="1_month">1 Month (30 Days)</option>
+                <option value="6_months">6 Months (180 Days)</option>
+                <option value="1_year">1 Year (365 Days)</option>
+                <option value="lifetime">Lifelong / Unlimited</option>
+              </select>
+              <p className="mt-1 text-[11px] text-[#788880]">
+                Student account automatically blocks when duration is completed.
+              </p>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -1013,7 +1094,8 @@ export function StudentsPage() {
                 full_name: fullName, 
                 email, 
                 contact_number: contactNumber,
-                status: editStatus
+                status: editStatus,
+                access_duration: accessDuration
               };
               if (newPassword.trim()) {
                 payload.password = newPassword.trim();
@@ -1053,6 +1135,31 @@ export function StudentsPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 className="field text-xs py-2"
               />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-[#4a5952]">Course Access Duration / Extend Access</label>
+              <select
+                value={accessDuration}
+                onChange={(e) => setAccessDuration(e.target.value)}
+                className="field text-xs py-2 bg-white"
+              >
+                <option value="1_month">1 Month (30 Days from today)</option>
+                <option value="6_months">6 Months (180 Days from today)</option>
+                <option value="1_year">1 Year (365 Days from today)</option>
+                <option value="lifetime">Lifelong / Unlimited</option>
+              </select>
+              {selectedStudent.access_expires_at && selectedStudent.access_duration !== 'lifetime' && (
+                <p className="mt-1 text-[11px] text-[#60726a]">
+                  Current Expiry: {new Date(selectedStudent.access_expires_at).toLocaleDateString()}
+                  {selectedStudent.days_left !== undefined && selectedStudent.days_left !== null
+                    ? ` (${selectedStudent.days_left} days left)`
+                    : ''}
+                </p>
+              )}
+              <p className="mt-1 text-[11px] text-[#29684c]">
+                Updating or extending access automatically reactivates blocked or expired student accounts.
+              </p>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

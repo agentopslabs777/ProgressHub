@@ -263,7 +263,8 @@ export const studentsApi = {
       password: data.password,
       role: 'student',
       identifier: data.identifier,
-      contact_number: data.contactNumber || data.contact_number
+      contact_number: data.contactNumber || data.contact_number,
+      access_duration: data.access_duration || data.accessDuration || 'lifetime'
     })
   }),
   get: (id: string) => request<any>(`/students/${id}`),
@@ -280,7 +281,7 @@ export const studentsApi = {
   }),
   getApplications: (statusFilter?: string) =>
     request<any[]>(`/students/applications${statusFilter ? `?status_filter=${statusFilter}` : ''}`),
-  approveApplication: (applicationId: string, data: { program_id?: string; employee_id?: string }) =>
+  approveApplication: (applicationId: string, data: { program_id?: string; employee_id?: string; access_duration?: string }) =>
     request<any>(`/students/applications/${applicationId}/approve`, {
       method: 'POST',
       body: JSON.stringify(data)
@@ -310,8 +311,7 @@ export const employeesApi = {
       role: 'employee',
       identifier: data.identifier,
       contact_number: data.contactNumber || data.contact_number,
-      designation: data.designation,
-      access_duration: data.access_duration || data.accessDuration || 'lifetime'
+      designation: data.designation
     })
   }),
   get: (id: string) => request<any>(`/employees/${id}`),

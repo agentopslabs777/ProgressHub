@@ -160,8 +160,8 @@ export function DashboardPage({ user }: { user: User }) {
         }
       />
 
-      {/* Employee Access Validity Alert Banner (Displays only if not lifetime) */}
-      {isEmployee && data.access_duration && data.access_duration !== 'lifetime' && data.days_left !== undefined && data.days_left !== null && (
+      {/* Student Course Access Validity Alert Banner (Displays only if not lifetime) */}
+      {!isAdmin && !isEmployee && data.access_duration && data.access_duration !== 'lifetime' && data.days_left !== undefined && data.days_left !== null && (
         <div className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs ${
           data.days_left <= 5
             ? 'bg-[#fef7f5] border-[#f8c9c0] text-[#7f261e]'
@@ -176,7 +176,7 @@ export function DashboardPage({ user }: { user: User }) {
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-bold text-sm text-[#1b2b24]">
-                  Account Access Validity:
+                  Course Access Validity:
                 </span>
                 <span className={`rounded-full px-2 py-0.5 text-xs font-extrabold ${
                   data.days_left <= 5 ? 'bg-[#fbd3ca] text-[#93271d]' : 'bg-[#c3e8d4] text-[#1a513b]'

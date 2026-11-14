@@ -20,14 +20,14 @@ def login(input_data: LoginInput, db: Session = Depends(get_db)):
             detail="Invalid email or password"
         )
 
-    # Check access validity for employee accounts
-    if user.role == "employee" and user.access_expires_at and user.access_expires_at <= datetime.utcnow():
+    # Check access validity for student accounts
+    if user.role == "student" and user.access_expires_at and user.access_expires_at <= datetime.utcnow():
         if user.status != "blocked":
             user.status = "blocked"
             db.commit()
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Your access duration has expired. Please contact the administrator to extend your access."
+            detail="Your student course access duration has expired. Please contact the administrator to extend your access."
         )
 
     if user.status == "blocked":
@@ -82,13 +82,13 @@ def refresh_token(data: RefreshTokenInput, db: Session = Depends(get_db)):
             detail="User not found"
         )
 
-    if user.role == "employee" and user.access_expires_at and user.access_expires_at <= datetime.utcnow():
+    if user.role == "student" and user.access_expires_at and user.access_expires_at <= datetime.utcnow():
         if user.status != "blocked":
             user.status = "blocked"
             db.commit()
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Your access duration has expired. Please contact the administrator to extend your access."
+            detail="Your student course access duration has expired. Please contact the administrator to extend your access."
         )
 
     if user.status == "blocked":

@@ -1,6 +1,6 @@
 import random
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
@@ -59,6 +59,16 @@ def list_students(
 
     students = query.order_by(User.created_at.desc()).all()
 
+    # Automatically block expired students
+    now = datetime.utcnow()
+    has_status_changed = False
+    for st in students:
+        if st.access_expires_at and st.access_expires_at <= now and st.status != "blocked":
+            st.status = "blocked"
+            has_status_changed = True
+    if has_status_changed:
+        db.commit()
+
     results = []
     for st in students:
         enrollments = db.query(Enrollment).filter(
@@ -70,11 +80,15 @@ def list_students(
         progs = [calculate_enrollment_progress(db, e) for e in enrollments]
         avg_progress = int(sum(progs) / len(progs)) if progs else 0
 
-        
         pending_sub = db.query(TaskSubmission).join(Enrollment).filter(
             Enrollment.student_id == st.id,
             TaskSubmission.status.in_(["submitted", "under_review"])
         ).count()
+
+        days_left = None
+        if st.access_expires_at:
+            delta = (st.access_expires_at - now).total_seconds()
+            days_left = max(0, int(delta // 86400) + (1 if delta % 86400 > 0 else 0))
 
         results.append({
             "id": st.id,
@@ -85,6 +99,12 @@ def list_students(
             "status": st.status,
             "identifier": st.identifier,
             "contact_number": st.contact_number,
+            "access_duration": st.access_duration or "lifetime",
+            "accessDuration": st.access_duration or "lifetime",
+            "access_expires_at": st.access_expires_at.isoformat() if st.access_expires_at else None,
+            "accessExpiresAt": st.access_expires_at.isoformat() if st.access_expires_at else None,
+            "days_left": days_left,
+            "daysLeft": days_left,
             "enrollmentCount": len(enrollments),
             "progress": avg_progress,
             "pendingSubmissions": pending_sub,
@@ -117,6 +137,22 @@ def create_student(
                 detail="A user with this identifier already exists"
             )
 
+    # Calculate access validity duration
+    raw_duration = (data.access_duration or "lifetime").lower().strip()
+    access_expires_at = None
+    if raw_duration == "1_month":
+        access_expires_at = datetime.utcnow() + timedelta(days=30)
+        access_duration = "1_month"
+    elif raw_duration == "6_months":
+        access_expires_at = datetime.utcnow() + timedelta(days=180)
+        access_duration = "6_months"
+    elif raw_duration == "1_year":
+        access_expires_at = datetime.utcnow() + timedelta(days=365)
+        access_duration = "1_year"
+    else:
+        access_duration = "lifetime"
+        access_expires_at = None
+
     student = User(
         email=clean_email,
         full_name=data.full_name.strip(),
@@ -124,7 +160,9 @@ def create_student(
         role="student",
         status="active",
         identifier=identifier,
-        contact_number=data.contact_number
+        contact_number=data.contact_number,
+        access_duration=access_duration,
+        access_expires_at=access_expires_at
     )
     db.add(student)
     db.commit()
@@ -136,10 +174,14 @@ def create_student(
         action="CREATE_STUDENT",
         target_type="student",
         target_id=student.id,
-        details=f"Student {student.full_name} ({student.identifier}) created"
+        details=f"Student {student.full_name} ({student.identifier}) created with access duration {access_duration}"
     )
 
-    return UserResponse.model_validate(student)
+    resp = UserResponse.model_validate(student)
+    if student.access_expires_at:
+        delta = (student.access_expires_at - datetime.utcnow()).total_seconds()
+        resp.days_left = max(0, int(delta // 86400) + (1 if delta % 86400 > 0 else 0))
+    return resp
 
 
 # =====================================================================
@@ -159,6 +201,7 @@ class StudentRegisterForm(BaseModel):
 class ApplicationApproveRequest(BaseModel):
     program_id: Optional[str] = None
     employee_id: Optional[str] = None
+    access_duration: Optional[str] = "lifetime"
 
 
 class ApplicationRejectRequest(BaseModel):
@@ -296,6 +339,22 @@ def approve_student_application(
     if not program:
         raise HTTPException(status_code=404, detail="Selected program does not exist.")
 
+    # Calculate access validity duration
+    raw_duration = (data.access_duration or "lifetime").lower().strip()
+    access_expires_at = None
+    if raw_duration == "1_month":
+        access_expires_at = datetime.utcnow() + timedelta(days=30)
+        access_duration = "1_month"
+    elif raw_duration == "6_months":
+        access_expires_at = datetime.utcnow() + timedelta(days=180)
+        access_duration = "6_months"
+    elif raw_duration == "1_year":
+        access_expires_at = datetime.utcnow() + timedelta(days=365)
+        access_duration = "1_year"
+    else:
+        access_duration = "lifetime"
+        access_expires_at = None
+
     # 2. Check or create User
     student = db.query(User).filter(User.email == app.email.lower().strip()).first()
     if not student:
@@ -307,13 +366,17 @@ def approve_student_application(
             role="student",
             status="active",
             identifier=identifier,
-            contact_number=app.contact_number
+            contact_number=app.contact_number,
+            access_duration=access_duration,
+            access_expires_at=access_expires_at
         )
         db.add(student)
         db.flush()
     else:
-        # Reactivate or update role if needed
+        # Reactivate and update access duration
         student.status = "active"
+        student.access_duration = access_duration
+        student.access_expires_at = access_expires_at
         if not student.contact_number and app.contact_number:
             student.contact_number = app.contact_number
 
@@ -482,8 +545,13 @@ def get_student_details(
                     "completed_items": sum(1 for it in day_items if it["completed"])
                 })
 
+    resp_student = UserResponse.model_validate(student)
+    if student.access_expires_at:
+        delta = (student.access_expires_at - datetime.utcnow()).total_seconds()
+        resp_student.days_left = max(0, int(delta // 86400) + (1 if delta % 86400 > 0 else 0))
+
     return {
-        "student": UserResponse.model_validate(student),
+        "student": resp_student,
         "enrollments": enrollment_list,
         "checklist_report": checklist_report,
         
@@ -522,6 +590,29 @@ def update_student(
         student.password_hash = get_password_hash(data.password)
     if data.contact_number is not None:
         student.contact_number = data.contact_number
+
+    if data.access_duration is not None:
+        raw_dur = data.access_duration.lower().strip()
+        if raw_dur == "1_month":
+            student.access_duration = "1_month"
+            student.access_expires_at = datetime.utcnow() + timedelta(days=30)
+            student.status = "active"  # Extending/setting access automatically activates!
+        elif raw_dur == "6_months":
+            student.access_duration = "6_months"
+            student.access_expires_at = datetime.utcnow() + timedelta(days=180)
+            student.status = "active"
+        elif raw_dur == "1_year":
+            student.access_duration = "1_year"
+            student.access_expires_at = datetime.utcnow() + timedelta(days=365)
+            student.status = "active"
+        elif raw_dur == "lifetime":
+            student.access_duration = "lifetime"
+            student.access_expires_at = None
+            student.status = "active"
+
+    if data.access_expires_at is not None:
+        student.access_expires_at = data.access_expires_at
+
     if data.status:
         student.status = data.status
 
@@ -537,7 +628,11 @@ def update_student(
         details=f"Student {student.full_name} updated"
     )
 
-    return UserResponse.model_validate(student)
+    resp = UserResponse.model_validate(student)
+    if student.access_expires_at:
+        delta = (student.access_expires_at - datetime.utcnow()).total_seconds()
+        resp.days_left = max(0, int(delta // 86400) + (1 if delta % 86400 > 0 else 0))
+    return resp
 
 @router.post("/{student_id}/block")
 def block_student(
